@@ -1,0 +1,25 @@
+map_frame: "map"
+sensor_frame: "zed_camera_link"
+robot_frame: "zed_camera_link"
+
+m_resolution: 0.1
+m_occupancy_min_thresh: 0.12
+m_occupancy_max_thresh: 0.97
+
+s_max_z: 3.0
+s_min_z: -3.0
+s_max_range: 5.0
+s_min_range: 0.5
+s_probability_hit: 0.7
+s_probability_miss: 0.4
+
+c_chunk_dim: 32
+c_chunk_neiborhood: 6
+c_chunk_cache_capacity: 7
+c_chunk_folder_path: "/home/kratos/dsta/mapping/code/paged_voxel_mapping/src/Rolling-Bonxai/chunks"
+
+use_sor_filter: false
+
+viz_occupied: true
+viz_free: false
+viz_chunks: false
