@@ -46,6 +46,7 @@ target_link_libraries(bonxai_core INTERFACE Eigen3::Eigen)
 # Compiled Library: bonxai_map
 add_library(bonxai_map
   src/probabilistic_map_old.cpp
+  src/occupancy_map.cpp
 )
 
 target_include_directories(bonxai_map PUBLIC
