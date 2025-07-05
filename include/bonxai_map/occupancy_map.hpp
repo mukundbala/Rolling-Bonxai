@@ -131,7 +131,7 @@ namespace Bonxai
          * @brief Get the Grid object
          * @return const VoxelGrid<MapUtils::CellOcc>&
          */
-        [[nodiscard]] const VoxelGrid<MapUtils::CellOcc>& getGrid() const;
+        [[nodiscard]] const VoxelGrid<MapUtils::CellOcc>& getConstGrid() const;
 
 
         /**
@@ -151,37 +151,53 @@ namespace Bonxai
          * @param VoxelGrid<MapUtils::CellOcc>&& grid
          */
         void setGrid(VoxelGrid<MapUtils::CellOcc>&& grid);
+
+        /**
+         * Check if the accessor is bound or not
+         * @return bool
+         */
+        [[nodiscard]] bool isAccessorBound() const;
+
+        /**
+         * @brief Set the accessor bound for true, false otherwise
+         * @param bool bound
+         */
+        void setAccessorBound(bool bound);
+
         
         /**
          * @brief Check if a cell is occupied
          * @param Bonxai::CoordT& coord
          * @return bool
          */
-        [[nodiscard]] bool isOccupied(const Bonxai::CoordT& coord) const;
+        [[nodiscard]] bool isOccupied(const Bonxai::CoordT& coord, 
+                                      Bonxai::VoxelGrid<MapUtils::CellOcc>::Accessor& accessor) const;
 
         /**
          * @brief Check if a cell is unknown
          * @param Bonxai::CoordT& coord
          * @return bool
          */
-        [[nodiscard]] bool isUnknown(const Bonxai::CoordT& coord) const;
+        [[nodiscard]] bool isUnknown(const Bonxai::CoordT& coord, 
+                                     Bonxai::VoxelGrid<MapUtils::CellOcc>::Accessor& accessor) const;
 
         /**
          * @brief Check if a cell is free
          * @param Bonxai::CoordT& coord
          * @return bool
          */
-        [[nodiscard]] bool isFree(const Bonxai::CoordT& coord) const;
+        [[nodiscard]] bool isFree(const Bonxai::CoordT& coord, 
+                                  Bonxai::VoxelGrid<MapUtils::CellOcc>::Accessor& accessor) const;
 
         /**
-         * @brief Get the occupied voxels
-         * @param std::vector<Bonxai::CoordT>& coords
+         * @brief Get the occupied voxels where probabality_log > threshold
+         * @param std::vector<Bonxai::CoordT>& coords container to hold coords
          */
         void getOccupiedVoxels(std::vector<Bonxai::CoordT>& coords) const;
 
         /**
-         * @brief Get the free voxels
-         * @param std::vector<Bonxai::CoordT>& coords
+         * @brief Get the free voxels where probabality_log < threshold
+         * @param std::vector<Bonxai::CoordT>& coords container to hold coords
          */
         void getFreeVoxels(std::vector<Bonxai::CoordT>& coords) const;
 
@@ -203,13 +219,13 @@ namespace Bonxai
          * @brief Add points that are hit
          * @param Vector3D& point in map frame
          */
-        void addHitPoint(const Vector3D& point);
+        void addHitPoint(const Vector3D& point,Bonxai::VoxelGrid<MapUtils::CellOcc>::Accessor& accessor);
 
         /**
          * @brief Add points that are missed
          * @param Vector3D& point in map frame
          */
-        void addMissPoint(const Vector3D& point);
+        void addMissPoint(const Vector3D& point,Bonxai::VoxelGrid<MapUtils::CellOcc>::Accessor& accessor);
 
         /**
          * @brief The main update function exposed to the user to update PointCloud
@@ -231,22 +247,26 @@ namespace Bonxai
         void updateFreeCells(const Vector3D& origin);
         
         // The main data structure to hold the occupancy grid
-        VoxelGrid<MapUtils::CellOcc> _grid;
+        VoxelGrid<MapUtils::CellOcc> grid_;
 
         // Options for the occupancy grid
-        MapUtils::OccupancyOptions _options;
+        MapUtils::OccupancyOptions options_;
         
         // Update count, cycles from 1 > 2 > 3 > 4 back to 1 and so on
-        uint8_t _update_count = 1;
+        uint8_t update_count_ = 1;
 
         // Miss coords for points that are outside the map. Clip to max range. Everything before this is free
-        std::vector<CoordT> _miss_coords;
+        std::vector<CoordT> miss_coords_;
 
         // Hit coords for terminal points inside the map. Everything before this is free
-        std::vector<CoordT> _hit_coords;
+        std::vector<CoordT> hit_coords_;
 
         //Accessor to the grid. Generate as little times as possible!
-        mutable Bonxai::VoxelGrid<MapUtils::CellOcc>::Accessor _accessor;
+        // mutable Bonxai::VoxelGrid<MapUtils::CellOcc>::Accessor accessor_;
+
+        bool accessor_bound_ {false};
+
+        //Maybe there is a way to use STD::optional to manage the lifetime of accessor
 
     };
 }
