@@ -18,6 +18,7 @@
 #include "message_filters/subscriber.h"
 
 #include "rolling_map/rolling_map_params.h"
+#include "rolling_map/map_manager.h"
 
 #include <mutex>
 #include <filesystem>
@@ -40,24 +41,31 @@ public:
 private:
 
     /**
-     * Declare ROS 2 Parameters for this node
+     * @brief Declare ROS 2 Parameters for this node
      */
     void declareParameters();
 
     /**
-     * Load ROS 2 Parameters for this node
+     * @brief Load ROS 2 Parameters for this node
      */
     void loadParameters();
     
     /**
-     * Parameter Printing for logging
+     * @brief Parameter Printing for logging
      */
     void printParameters();
 
     /**
      * @brief Cloud Callback Function. This will trigger the updates
+     * @params sensor_msgs::msg::PointCloud2::ConstSharedPtr msg
      */
     void cloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr msg);
+
+
+    void publishMap();
+
+    //Map Manager
+    MapManager map_manager_;
 
     //Parameters
     FrameParams frame_params_;

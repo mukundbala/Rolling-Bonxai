@@ -9,6 +9,9 @@ rclcpp::Node("rolling_map_node",options)
     //Declare and Load all the parameters into the parameter objects
     declareParameters();
     loadParameters();
+
+    //Load the map manager
+    map_manager_ = MapManager(sensor_params_,map_params_,chunk_params_);
     
     auto qos = rclcpp::QoS{1};
     this->voxel_center_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/voxel_centers", qos);
@@ -202,7 +205,10 @@ void RollingMapNode::cloudCallback(const sensor_msgs::msg::PointCloud2::ConstSha
     PCLPointCloud world_points;
     pcl::transformPointCloud(pc,world_points,sensor_to_world);
     const auto& t = sensor_to_world_transform_stamped.transform.translation;
-    const PCLPoint global_sensor_position(t.x,t.y,t.z);
+    PCLPoint global_sensor_position(t.x,t.y,t.z);
+    
+    //Chunk Updates happen here!
+    map_manager_.updateMap(world_points,global_sensor_position);
     
     const double end_time = this->get_clock()->now().seconds();
     double elapsed_s = end_time - start_time;
@@ -214,4 +220,11 @@ void RollingMapNode::cloudCallback(const sensor_msgs::msg::PointCloud2::ConstSha
                                         << "Total Callback Hits: "      << num_callback_hits_  << "\n"
                                         << "Average Completion Time: "  << elapsed_avg_time_s_ << "s\n");
 }
+
+
+void RollingMapNode::publishMap()
+{
+    return;
 }
+
+} // namespace RM
