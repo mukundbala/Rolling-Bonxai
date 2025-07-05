@@ -32,13 +32,13 @@ namespace RM
         const size_t num_chunks_in_play = neibors + 1; //neibor chunks and me
 
         //Create a vector containing all the chunks in play. Should be a maximum of 27
-        std::vector<std::pair<ChunkKey,Bonxai::CoordT>> chunks_in_play;
+        std::vector<Bonxai::CoordT> chunks_in_play;
 
         //Reserve memory for faster pushbacks
         chunks_in_play.reserve(num_chunks_in_play);
 
         //Push in the chunk containing the origin
-        chunks_in_play.emplace_back(this->chunkCoordToChunkKey(chunk_coord_sensor),chunk_coord_sensor);
+        chunks_in_play.push_back(chunk_coord_sensor);
 
         //Get the neibor coordinates
         auto face_neibors = getFaceNeibors(chunk_coord_sensor);
@@ -52,7 +52,7 @@ namespace RM
                 //6 Neibors (Only Face)
                 for (auto &nbf : face_neibors)
                 {
-                    chunks_in_play.emplace_back(this->chunkCoordToChunkKey(nbf),nbf);
+                    chunks_in_play.push_back(nbf);
                 }
                 break;
             
@@ -60,12 +60,12 @@ namespace RM
                 //6 Face and 12 Edge
                 for (auto &nbf : face_neibors)
                 {
-                    chunks_in_play.emplace_back(this->chunkCoordToChunkKey(nbf),nbf);
+                    chunks_in_play.push_back(nbf);
                 }
 
                 for (auto &nbe : edge_neibors)
                 {
-                    chunks_in_play.emplace_back(this->chunkCoordToChunkKey(nbe),nbe);
+                    chunks_in_play.push_back(nbe);
                 }
                 break;
 
@@ -73,30 +73,30 @@ namespace RM
                 //6 Face, 12 Edge and 8 Corner
                 for (auto &nbf : face_neibors)
                 {
-                    chunks_in_play.emplace_back(this->chunkCoordToChunkKey(nbf),nbf);
+                    chunks_in_play.push_back(nbf);
                 }
 
                 for (auto &nbe : edge_neibors)
                 {
-                    chunks_in_play.emplace_back(this->chunkCoordToChunkKey(nbe),nbe);
+                    chunks_in_play.push_back(nbe);
                 }
 
                 for (auto &nbc : corner_neibors)
                 {
-                    chunks_in_play.emplace_back(this->chunkCoordToChunkKey(nbc),nbc);
+                    chunks_in_play.push_back(nbc);
                 }
                 break;
         }
 
         if (first_update_)
         {
-            //chunk_manager_.initFirstChunks(chunks_in_play);
+            //chunk_manager_.initFirstChunks(source_chunk,chunks_in_play);
             //first_update_ = false;
         }
 
         else
         {
-            //chunk_manager_.updateChunks(points,chunks_in_play);
+            //chunk_manager_.updateChunks(points,source_chunk,chunks_in_play);
         }
 
 
