@@ -1,6 +1,5 @@
 #include "bonxai_map/occupancy_map.hpp"
 
-
 namespace Bonxai
 {
     [[nodiscard]] constexpr int32_t MapUtils::logods(float prob)
