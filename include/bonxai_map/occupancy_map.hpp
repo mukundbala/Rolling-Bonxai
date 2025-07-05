@@ -15,14 +15,14 @@ namespace Bonxai
          * @param float probability
          * @return int32_t
          */
-        [[nodiscard]] constexpr int32_t logods(float prob);
+        [[nodiscard]] int32_t logods(float prob);
 
         /**
          * @brief Compute the probability from the logds
          * @param int32_t logods_fixed
          * @return float
          */
-        [[nodiscard]] constexpr float prob(int32_t logods_fixed);
+        [[nodiscard]] float prob(int32_t logods_fixed);
 
         /**
          * @brief A Ray iterator that does something for each key on the ray

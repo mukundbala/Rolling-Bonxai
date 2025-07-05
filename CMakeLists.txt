@@ -68,7 +68,7 @@ include_directories(
 )
 
 add_executable(rolling_map_node
-  # src/map_handler.cpp
+  src/map_manager.cpp
   # src/chunk_cache.cpp
   # src/chunk_manager.cpp
   src/rolling_map.cpp

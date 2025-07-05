@@ -2,12 +2,12 @@
 
 namespace Bonxai
 {
-    [[nodiscard]] constexpr int32_t MapUtils::logods(float prob)
+    [[nodiscard]] int32_t MapUtils::logods(float prob)
     {
         return int32_t(1e6 * std::log(prob / (1.0 - prob)));
     }
 
-    [[nodiscard]] constexpr float MapUtils::prob(int32_t logods_fixed)
+    [[nodiscard]] float MapUtils::prob(int32_t logods_fixed)
     {
         float logods = float(logods_fixed) * 1e-6;
         return (1.0 - 1.0 / (1.0 + std::exp(logods)));
