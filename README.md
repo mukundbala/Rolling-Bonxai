@@ -1,4 +1,5 @@
 # Rolling-Bonxai
+![RollingBonxai](media/RollingBonxai.png)
 
 **Rolling-Bonxai** is a C++ 17 implementation built on top of Bonxai:https://github.com/facontidavide/Bonxai. Memory remains a bottleneck for resource constrained robots (like drones) that have to map and navigate in very large areas. In these large areas, **the robot will likely not need other parts of the map besides some local area to do path planning/local planning**. Therefore, these storing unnecessary parts of the map in memory is wasteful. **Rolling Bonxai** implements a chunking system (like in games) comprising of *NxNxN* voxels each. Each chunk is a `Bonxai::OccupancyGrid` that can be loaded/created or offloaded depending on the robot's position. Unused parts of the maps are serialized and saved to disk and loaded when required depending on a user defined policy. The underlying Bonxai library implements a compact hierarchical data structure that can store and manipulate volumetric data, discretized as Voxel Grids in a manner that is both **sparse** and **unbounded**. Star this repo if you found this useful/interesting :)
 
