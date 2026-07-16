@@ -225,7 +225,9 @@ void BonxaiServer::pointcloud_callback(const sensor_msgs::msg::PointCloud2::Shar
       params_.frame_id, //target frame: base_link 
       msg->header.frame_id, //frame where the camera is publshing at
       msg->header.stamp,
-      rclcpp::Duration::from_seconds(0.1));
+      // FAST-LIO publishes the transform for a scan after processing that
+      // scan, so allow enough time for the matching TF sample to arrive.
+      rclcpp::Duration::from_seconds(0.5));
   } catch (tf2::TransformException& ex) {
     RCLCPP_WARN(get_logger(), "Could not transform: %s", ex.what());
     return;
