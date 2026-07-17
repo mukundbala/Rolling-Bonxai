@@ -5,7 +5,8 @@ bonxai_server_node:
     topic_in: "/zed/zed_node/point_cloud/cloud_registered"
 
     occupancy:
-      resolution: 0.02
+      static_resolution: 0.02
+      dynamic_resolution: 0.02
       occupancy_min_z: -100.0
       occupancy_max_z: 100.0
       occupancy_threshold: 0.50
@@ -20,8 +21,23 @@ bonxai_server_node:
     server:
       cleanup_interval_sec: 300.0
 
+    map_storage:
+      path: ""
+      load_on_startup: false
+      save_on_shutdown: false
+
     stats:
       enable_stats: true
       quick_stats: true
       publish_occupied_voxels: true
-      publish_rate: 3.0 #Hz
+      static_publish_rate: 1.0
+      dynamic_publish_rate: 5.0
+
+    dynamic_obstacles:
+      enabled: true
+      decay_time_sec: 2.0
+      decay_interval_sec: 0.25
+      static_demotion_time_sec: 20.0
+      static_stability_hits: 30
+      static_stability_time_sec: 3.0
+      min_probability: 0.05

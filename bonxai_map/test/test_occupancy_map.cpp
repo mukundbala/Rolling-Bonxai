@@ -519,6 +519,45 @@ TEST(OccupancyMapTest, GetOccupiedVoxelsAsPoints) {
   EXPECT_FALSE(occupied_points.empty());
 }
 
+TEST(OccupancyMapTest, TemporalDecayReducesOccupancy) {
+  Bonxai::OccupancyMap map(0.1);
+  const Eigen::Vector3d point(0.05, 0.05, 0.05);
+
+  map.addHitPoint(point);
+  const auto coord = map.worldToVoxel(point);
+
+  EXPECT_TRUE(map.isOccupied(coord));
+
+  map.applyTemporalDecay(10.0, 0.1);
+
+  EXPECT_FALSE(map.isOccupied(coord));
+  EXPECT_TRUE(map.isUnknown(coord));
+}
+
+TEST(OccupancyMapTest, TemporalDecayDoesNotTurnOccupancyIntoFreeSpace) {
+  Bonxai::OccupancyMap map(0.1);
+  const auto coord = map.worldToVoxel(Eigen::Vector3d(0.05, 0.05, 0.05));
+
+  map.addHitPoint(coord);
+  map.applyTemporalDecay(1.0, 2.0);
+
+  EXPECT_TRUE(map.isOccupied(coord));
+  EXPECT_FALSE(map.isFree(coord));
+}
+
+TEST(OccupancyMapTest, ResetPointRemovesPersistentOccupancy) {
+  Bonxai::OccupancyMap map(0.1);
+  const auto coord = map.worldToVoxel(Eigen::Vector3d(0.05, 0.05, 0.05));
+
+  map.addHitPoint(coord);
+  ASSERT_TRUE(map.isOccupied(coord));
+
+  map.resetPoint(coord);
+
+  EXPECT_FALSE(map.isOccupied(coord));
+  EXPECT_TRUE(map.isUnknown(coord));
+}
+
 TEST(OccupancyMapTest, GetFreeVoxelsAsPoints) {
   Bonxai::OccupancyMap map(0.1);
   

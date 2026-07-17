@@ -206,6 +206,45 @@ Occupancy::OccupancyMapStats OccupancyMap::getQuickStats() const noexcept {
     return stats;
 }
 
+CoordT OccupancyMap::worldToVoxel(const Vector3D& point) const {
+    return grid_.posToCoord(point);
+}
+
+void OccupancyMap::applyTemporalDecay(double dt_seconds, double decay_time_seconds) {
+    if (dt_seconds <= 0.0 || decay_time_seconds <= 0.0) {
+        return;
+    }
+
+    ensureAccessorValid();
+
+    const double decay_factor = std::exp(-dt_seconds / decay_time_seconds);
+    auto visitor = [this, decay_factor](Occupancy::CellOcc& cell, const CoordT&) {
+        if (cell.probability_log == Occupancy::UnknownProbability) {
+            return;
+        }
+
+        const float current_probability = Occupancy::prob(cell.probability_log);
+        // Decay evidence toward "unknown" (p = 0.5), not toward free
+        // space.  Multiplying the probability itself by decay_factor made a
+        // fresh hit fall below the occupied threshold after only a few timer
+        // ticks, which made the dynamic layer appear empty.
+        const float target_probability = std::max(
+            1.0e-6f,
+            std::min(
+                1.0f - 1.0e-6f,
+                0.5f + (current_probability - 0.5f) * static_cast<float>(decay_factor))
+        );
+
+        cell.probability_log = std::clamp(
+            Occupancy::logods(target_probability),
+            options_.clamp_min_log,
+            options_.clamp_max_log
+        );
+    };
+
+    grid_.forEachCell(visitor);
+}
+
 Occupancy::OccupancyMapStats OccupancyMap::getStats(bool compute_expensive) const {
     Occupancy::OccupancyMapStats stats = getQuickStats();
     
@@ -346,6 +385,16 @@ void OccupancyMap::addHitPoint(const CoordT& coord) {
         cell->update_id = update_count_;
         hit_coords_.push_back(coord);
     }
+}
+
+void OccupancyMap::resetPoint(const CoordT& coord) {
+    ensureAccessorValid();
+    Occupancy::CellOcc* cell = accessor_->value(coord, true);
+    // isUnknown() is defined relative to the configured occupancy threshold,
+    // which is not guaranteed to be bit-identical to UnknownProbability.
+    cell->probability_log = options_.occupancy_threshold_log;
+    // Make the cell eligible for an update in the current insertion cycle.
+    cell->update_id = 4;
 }
 
 void OccupancyMap::addMissPoint(const Vector3D& point) {

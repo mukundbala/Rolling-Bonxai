@@ -129,6 +129,7 @@ ament_export_dependencies(
   rclcpp
   rclcpp_components
   std_msgs
+  std_srvs
   sensor_msgs
   geometry_msgs
   visualization_msgs

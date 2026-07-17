@@ -431,6 +431,19 @@ public:
             points.emplace_back(p.x, p.y, p.z);
         }
     }
+
+    /**
+     * @brief Convert a world-space point into a voxel coordinate using this map's resolution.
+     */
+    [[nodiscard]] CoordT worldToVoxel(const Vector3D& point) const;
+
+    /**
+     * @brief Apply temporal decay to occupied voxels so dynamic obstacles can fade over time.
+     *
+     * @param dt_seconds Elapsed time since the previous decay update.
+     * @param decay_time_seconds Time constant over which occupancy decays toward free-space.
+     */
+    void applyTemporalDecay(double dt_seconds, double decay_time_seconds);
     
     // ========================================================================
     // Updates (non-const methods)
@@ -449,6 +462,14 @@ public:
      * @note Prefer this overload if you already have voxel coordinates
      */
     void addHitPoint(const CoordT& coord);
+
+    /**
+     * @brief Reset a voxel to unknown occupancy.
+     *
+     * Used when a formerly stable obstacle disappears and must be removed
+     * from the persistent layer.
+     */
+    void resetPoint(const CoordT& coord);
     
     /**
      * @brief Add a miss observation (free space)

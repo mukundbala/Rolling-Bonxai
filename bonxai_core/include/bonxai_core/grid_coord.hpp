@@ -69,6 +69,7 @@ struct CoordT {
 
   [[nodiscard]] bool operator==(const CoordT& other) const;
   [[nodiscard]] bool operator!=(const CoordT& other) const;
+  [[nodiscard]] bool operator<(const CoordT& other) const;
 
   [[nodiscard]] CoordT operator+(const CoordT& other) const;
   [[nodiscard]] CoordT operator-(const CoordT& other) const;
@@ -180,6 +181,16 @@ inline bool CoordT::operator==(const CoordT& other) const {
 
 inline bool CoordT::operator!=(const CoordT& other) const {
   return !(*this == other);
+}
+
+inline bool CoordT::operator<(const CoordT& other) const {
+  if (x != other.x) {
+    return x < other.x;
+  }
+  if (y != other.y) {
+    return y < other.y;
+  }
+  return z < other.z;
 }
 
 inline CoordT CoordT::operator+(const CoordT& other) const {

@@ -3,11 +3,14 @@
 #include <memory>
 #include <string>
 #include <chrono>
+#include <map>
+#include <tuple>
 
 // ROS2
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
+#include <std_srvs/srv/trigger.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_ros/buffer.h>
@@ -34,7 +37,8 @@ namespace Bonxai
 
 struct BonxaiParams
 {
-  double resolution{0.0};
+  double static_resolution{0.0};
+  double dynamic_resolution{0.0};
   std::string frame_id;
   std::string base_frame_id;
   std::string topic_in;
@@ -56,15 +60,38 @@ struct BonxaiParams
   bool enable_stats{true};
   bool quick_stats{true};
   bool publish_occupied_voxels{true};
-  double stats_publish_rate{1.0};  // Hz
+  double static_voxel_publish_rate{1.0};  // Hz
+  double dynamic_voxel_publish_rate{5.0};  // Hz
+
+  // Dynamic obstacles
+  bool dynamic_obstacles_enabled{true};
+  double dynamic_obstacle_decay_time_sec{2.0};
+  double dynamic_obstacle_decay_interval_sec{0.25};
+  double dynamic_obstacle_static_demotion_time_sec{20.0};
+  int dynamic_obstacle_static_stability_hits{3};
+  double dynamic_obstacle_static_stability_time_sec{1.0};
+  double dynamic_obstacle_min_probability{0.05};
+
+  // Static map persistence
+  std::string static_map_path;
+  bool static_map_load_on_startup{false};
+  bool static_map_save_on_shutdown{false};
   
+};
+
+struct DynamicCellState
+{
+  uint32_t consecutive_hits{0};
+  std::chrono::steady_clock::time_point last_seen{std::chrono::steady_clock::now()};
+  bool promoted_to_static{false};
+  Bonxai::CoordT promoted_static_coord{};
 };
 
 class BonxaiServer : public rclcpp::Node
 {
 public:
   explicit BonxaiServer(const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
-  ~BonxaiServer() = default;
+  ~BonxaiServer() override;
 
 private:
   // Initialization methods
@@ -86,19 +113,42 @@ private:
   void handle_get_free_voxels(
     const std::shared_ptr<bonxai_msgs::srv::GetFreeVoxels::Request> request,
     std::shared_ptr<bonxai_msgs::srv::GetFreeVoxels::Response> response);
+
+  void handle_save_static_map(
+    const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+    std::shared_ptr<std_srvs::srv::Trigger::Response> response);
+  void handle_load_static_map(
+    const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+    std::shared_ptr<std_srvs::srv::Trigger::Response> response);
+  bool save_static_map(std::string& error_message) const;
+  bool load_static_map(std::string& error_message);
   
   // Timer callbacks
   void cleanup_timer_callback();
   void stats_timer_callback();
+  void static_voxel_timer_callback();
+  void dynamic_voxel_timer_callback();
 
   // Helper: Fill VoxelGrid message from coordinate vector
   void fill_voxel_grid_msg(
     const std::vector<Bonxai::CoordT>& coords,
     bonxai_msgs::msg::VoxelGrid& msg);
 
+  void update_dynamic_obstacle_layer(
+    const std::vector<Eigen::Vector3d>& map_points,
+    const Eigen::Vector3d& sensor_origin);
+
+  void get_dynamic_obstacle_voxels(std::vector<Bonxai::CoordT>& coords) const;
+  Bonxai::CoordT dynamic_to_static_coord(const Bonxai::CoordT& coord) const;
+  bool dynamic_voxel_overlaps_static(const Bonxai::CoordT& coord) const;
+  void reconcile_dynamic_with_static_map();
+
+  void decay_dynamic_obstacles();
+
   void fill_pcl_msg(
     const std::vector<Bonxai::CoordT>& coords,
-    sensor_msgs::msg::PointCloud2& msg);
+    sensor_msgs::msg::PointCloud2& msg,
+    const Bonxai::OccupancyMap& coordinate_map);
     
   // Helper: Fill OccupancyMapStats message
   void fill_stats_msg(bonxai_msgs::msg::OccupancyMapStats& msg);
@@ -109,8 +159,10 @@ private:
   // Flags
   bool updated_map_once_{false};
 
-  // Occupancy map
+  // Occupancy maps
   std::unique_ptr<Bonxai::OccupancyMap> occupancy_map_;
+  std::unique_ptr<Bonxai::OccupancyMap> dynamic_obstacle_map_;
+  std::map<std::tuple<int32_t, int32_t, int32_t>, DynamicCellState> dynamic_obstacle_states_;
 
   // TF
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
@@ -122,14 +174,21 @@ private:
   // Service servers
   rclcpp::Service<bonxai_msgs::srv::GetOccupiedVoxels>::SharedPtr occupied_voxels_service_;
   rclcpp::Service<bonxai_msgs::srv::GetFreeVoxels>::SharedPtr free_voxels_service_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr save_static_map_service_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr load_static_map_service_;
   
   // Publishers
   rclcpp::Publisher<bonxai_msgs::msg::OccupancyMapStats>::SharedPtr stats_publisher_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr occupied_voxel_publisher_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr static_voxel_publisher_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr dynamic_voxel_publisher_;
   
   // Timers
   rclcpp::TimerBase::SharedPtr cleanup_timer_;
   rclcpp::TimerBase::SharedPtr stats_timer_;
+  rclcpp::TimerBase::SharedPtr static_voxel_timer_;
+  rclcpp::TimerBase::SharedPtr dynamic_voxel_timer_;
+  rclcpp::TimerBase::SharedPtr dynamic_decay_timer_;
   
   // Statistics
   uint64_t point_clouds_processed_{0};
