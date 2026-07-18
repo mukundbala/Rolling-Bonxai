@@ -3,8 +3,11 @@
 #include <memory>
 #include <string>
 #include <chrono>
+#include <cstdint>
 #include <map>
+#include <set>
 #include <tuple>
+#include <vector>
 
 // ROS2
 #include <rclcpp/rclcpp.hpp>
@@ -31,6 +34,7 @@
 #include "bonxai_msgs/srv/get_occupied_voxels.hpp"
 #include "bonxai_msgs/srv/get_free_voxels.hpp"
 #include "bonxai_msgs/msg/occupancy_map_stats.hpp"
+#include "surf_multirobot_msgs/msg/voxel_delta.hpp"
 
 namespace Bonxai
 {
@@ -42,6 +46,7 @@ struct BonxaiParams
   std::string frame_id;
   std::string base_frame_id;
   std::string topic_in;
+  std::string delta_topic_in;
 
   double occupancy_min_z{0.0};
   double occupancy_max_z{0.0};
@@ -60,6 +65,7 @@ struct BonxaiParams
   bool enable_stats{true};
   bool quick_stats{true};
   bool publish_occupied_voxels{true};
+  double stats_publish_rate{1.0};  // Hz
   double static_voxel_publish_rate{1.0};  // Hz
   double dynamic_voxel_publish_rate{5.0};  // Hz
 
@@ -75,7 +81,7 @@ struct BonxaiParams
   // Static map persistence
   std::string static_map_path;
   bool static_map_load_on_startup{false};
-  bool static_map_save_on_shutdown{false};
+  bool static_map_save_on_shutdown{true};
   
 };
 
@@ -85,6 +91,15 @@ struct DynamicCellState
   std::chrono::steady_clock::time_point last_seen{std::chrono::steady_clock::now()};
   bool promoted_to_static{false};
   Bonxai::CoordT promoted_static_coord{};
+};
+
+struct RemoteSourceLayer
+{
+  uint64_t map_epoch{0U};
+  uint64_t last_version{0U};
+  bool awaiting_full_refresh{true};
+  std::unique_ptr<Bonxai::OccupancyMap> occupancy;
+  std::set<Bonxai::CoordT> dynamic_voxels;
 };
 
 class BonxaiServer : public rclcpp::Node
@@ -104,6 +119,12 @@ private:
 
   // Callbacks
   void pointcloud_callback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
+  void voxel_delta_callback(
+    const surf_multirobot_msgs::msg::VoxelDelta::SharedPtr msg);
+  void reset_remote_source(RemoteSourceLayer & source, uint64_t map_epoch);
+  void get_fused_occupied_voxels(
+    std::vector<Bonxai::CoordT> & coords, bool include_static, bool include_dynamic) const;
+  void get_fused_free_voxels(std::vector<Bonxai::CoordT> & coords) const;
   
   // Service handlers
   void handle_get_occupied_voxels(
@@ -163,6 +184,7 @@ private:
   std::unique_ptr<Bonxai::OccupancyMap> occupancy_map_;
   std::unique_ptr<Bonxai::OccupancyMap> dynamic_obstacle_map_;
   std::map<std::tuple<int32_t, int32_t, int32_t>, DynamicCellState> dynamic_obstacle_states_;
+  std::map<std::string, RemoteSourceLayer> remote_sources_;
 
   // TF
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
@@ -170,6 +192,7 @@ private:
 
   // Subscribers
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
+  rclcpp::Subscription<surf_multirobot_msgs::msg::VoxelDelta>::SharedPtr delta_sub_;
   
   // Service servers
   rclcpp::Service<bonxai_msgs::srv::GetOccupiedVoxels>::SharedPtr occupied_voxels_service_;

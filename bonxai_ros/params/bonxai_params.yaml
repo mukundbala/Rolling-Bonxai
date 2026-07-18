@@ -23,8 +23,8 @@ bonxai_server_node:
 
     map_storage:
       path: ""
-      load_on_startup: false
-      save_on_shutdown: false
+      load_on_startup: true
+      save_on_shutdown: true
 
     stats:
       enable_stats: true

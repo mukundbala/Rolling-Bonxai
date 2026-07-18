@@ -27,6 +27,7 @@
   <depend>bonxai_core</depend>
   <depend>bonxai_map</depend>
   <depend>bonxai_msgs</depend>
+  <depend>surf_multirobot_msgs</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

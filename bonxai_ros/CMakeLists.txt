@@ -26,6 +26,7 @@ find_package(Eigen3 REQUIRED)
 find_package(bonxai_core REQUIRED)
 find_package(bonxai_map REQUIRED)
 find_package(bonxai_msgs REQUIRED)
+find_package(surf_multirobot_msgs REQUIRED)
 
 # Create BonxaiServer library (for component and linking)
 add_library(bonxai_server_lib SHARED
@@ -67,6 +68,7 @@ ament_target_dependencies(bonxai_server_lib
     tf2_eigen
     pcl_conversions
     bonxai_msgs
+    surf_multirobot_msgs
 )
 
 # Register as composable node (for component containers)
@@ -142,6 +144,7 @@ ament_export_dependencies(
   bonxai_core
   bonxai_map
   bonxai_msgs
+  surf_multirobot_msgs
 )
 
 # Export include directories

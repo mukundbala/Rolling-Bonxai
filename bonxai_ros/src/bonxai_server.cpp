@@ -82,6 +82,8 @@ void BonxaiServer::load_parameters()
     
   params_.topic_in =
     this->declare_parameter<std::string>("topic_in", "/points");
+  params_.delta_topic_in =
+    this->declare_parameter<std::string>("delta_topic_in", "");
 
   params_.static_resolution =
     this->declare_parameter<double>("occupancy.static_resolution", 0.05);
@@ -127,6 +129,9 @@ void BonxaiServer::load_parameters()
     this->declare_parameter<bool>("stats.quick_stats", true);
 
   params_.publish_occupied_voxels = this->declare_parameter<bool>("stats.publish_occupied_voxels",true);
+
+  params_.stats_publish_rate =
+    this->declare_parameter<double>("stats.publish_rate", 1.0);
     
   params_.static_voxel_publish_rate =
     this->declare_parameter<double>("stats.static_publish_rate", 1.0);
@@ -153,7 +158,7 @@ void BonxaiServer::load_parameters()
   params_.static_map_load_on_startup =
     this->declare_parameter<bool>("map_storage.load_on_startup", false);
   params_.static_map_save_on_shutdown =
-    this->declare_parameter<bool>("map_storage.save_on_shutdown", false);
+    this->declare_parameter<bool>("map_storage.save_on_shutdown", true);
 
   RCLCPP_INFO(get_logger(),
     "Bonxai params loaded:"
@@ -165,7 +170,7 @@ void BonxaiServer::load_parameters()
     "\n  occupancy_thresh=%.2f"
     "\n  sensor(hit=%.2f miss=%.2f min=%.2f max=%.2f range=%.2f)"
     "\n  cleanup_interval=%.1fs"
-    "\n  stats(enabled=%s quick=%s voxels=%s static_rate=%.1fHz dynamic_rate=%.1fHz)"
+    "\n  stats(enabled=%s quick=%s voxels=%s stats_rate=%.1fHz static_rate=%.1fHz dynamic_rate=%.1fHz)"
     "\n  dynamic_obstacles(enabled=%s dynamic_decay=%.2fs interval=%.2fs static_demotion=%.2fs stability_hits=%d stability_window=%.2fs)",
     params_.static_resolution,
     params_.dynamic_resolution,
@@ -184,6 +189,7 @@ void BonxaiServer::load_parameters()
     params_.enable_stats ? "true" : "false",
     params_.quick_stats ? "true" : "false",
     params_.publish_occupied_voxels ? "true" : "false",
+    params_.stats_publish_rate,
     params_.static_voxel_publish_rate,
     params_.dynamic_voxel_publish_rate,
     params_.dynamic_obstacles_enabled ? "true" : "false",
@@ -211,19 +217,19 @@ void BonxaiServer::init_publishers()
   // Create stats publisher if enabled
   if (params_.enable_stats) {
     stats_publisher_ = this->create_publisher<bonxai_msgs::msg::OccupancyMapStats>(
-      "/bonxai/occupancy_stats",
+      "bonxai/occupancy_stats",
       rclcpp::QoS(10));
     
     if (params_.publish_occupied_voxels) {
       occupied_voxel_publisher_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
-        "/bonxai/occupied_voxels", rclcpp::QoS(10));
+        "bonxai/occupied_voxels", rclcpp::QoS(10));
       static_voxel_publisher_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
-        "/bonxai/static_occupied_voxels", rclcpp::QoS(10));
+        "bonxai/static_occupied_voxels", rclcpp::QoS(10));
       dynamic_voxel_publisher_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
-        "/bonxai/dynamic_occupied_voxels", rclcpp::QoS(10));
+        "bonxai/dynamic_occupied_voxels", rclcpp::QoS(10));
     }
   
-    RCLCPP_INFO(get_logger(), "Stats publisher created: /bonxai/occupancy_stats");
+    RCLCPP_INFO(get_logger(), "Stats publisher created: bonxai/occupancy_stats");
   }
 }
 
@@ -238,6 +244,15 @@ void BonxaiServer::init_subscribers()
     std::bind(&BonxaiServer::pointcloud_callback, this, std::placeholders::_1));
   
   RCLCPP_INFO(get_logger(), "Subscribed to: %s", params_.topic_in.c_str());
+
+  if (!params_.delta_topic_in.empty()) {
+    delta_sub_ = this->create_subscription<surf_multirobot_msgs::msg::VoxelDelta>(
+      params_.delta_topic_in,
+      rclcpp::QoS(rclcpp::KeepLast(10)).reliable().durability_volatile(),
+      std::bind(&BonxaiServer::voxel_delta_callback, this, std::placeholders::_1));
+    RCLCPP_INFO(get_logger(), "Subscribed to remote voxel deltas: %s",
+      params_.delta_topic_in.c_str());
+  }
 }
 
 void BonxaiServer::init_services()
@@ -246,29 +261,232 @@ void BonxaiServer::init_services()
   
   // Create service servers
   occupied_voxels_service_ = this->create_service<bonxai_msgs::srv::GetOccupiedVoxels>(
-    "/bonxai/get_occupied_voxels",
+    "bonxai/get_occupied_voxels",
     std::bind(&BonxaiServer::handle_get_occupied_voxels, this,
               std::placeholders::_1, std::placeholders::_2));
               
   free_voxels_service_ = this->create_service<bonxai_msgs::srv::GetFreeVoxels>(
-    "/bonxai/get_free_voxels",
+    "bonxai/get_free_voxels",
     std::bind(&BonxaiServer::handle_get_free_voxels, this,
               std::placeholders::_1, std::placeholders::_2));
 
   save_static_map_service_ = this->create_service<std_srvs::srv::Trigger>(
-    "/bonxai/save_static_map",
+    "bonxai/save_static_map",
     std::bind(&BonxaiServer::handle_save_static_map, this,
               std::placeholders::_1, std::placeholders::_2));
   load_static_map_service_ = this->create_service<std_srvs::srv::Trigger>(
-    "/bonxai/load_static_map",
+    "bonxai/load_static_map",
     std::bind(&BonxaiServer::handle_load_static_map, this,
               std::placeholders::_1, std::placeholders::_2));
   
   RCLCPP_INFO(get_logger(), "Services created:");
-  RCLCPP_INFO(get_logger(), "  - /bonxai/get_occupied_voxels");
-  RCLCPP_INFO(get_logger(), "  - /bonxai/get_free_voxels");
-  RCLCPP_INFO(get_logger(), "  - /bonxai/save_static_map");
-  RCLCPP_INFO(get_logger(), "  - /bonxai/load_static_map");
+  RCLCPP_INFO(get_logger(), "  - bonxai/get_occupied_voxels");
+  RCLCPP_INFO(get_logger(), "  - bonxai/get_free_voxels");
+  RCLCPP_INFO(get_logger(), "  - bonxai/save_static_map");
+  RCLCPP_INFO(get_logger(), "  - bonxai/load_static_map");
+}
+
+void BonxaiServer::voxel_delta_callback(
+  const surf_multirobot_msgs::msg::VoxelDelta::SharedPtr msg)
+{
+  const std::size_t count = msg->x.size();
+  if (!occupancy_map_ || !dynamic_obstacle_map_) {
+    return;
+  }
+  if (msg->source_id.empty()) {
+    RCLCPP_WARN(get_logger(), "Rejected voxel delta without a source ID");
+    return;
+  }
+  if (msg->header.frame_id != params_.frame_id) {
+    RCLCPP_WARN(get_logger(), "Rejected delta in frame '%s'; expected '%s'",
+      msg->header.frame_id.c_str(), params_.frame_id.c_str());
+    return;
+  }
+  if (!std::isfinite(msg->resolution) || msg->resolution <= 0.0 ||
+    msg->y.size() != count || msg->z.size() != count ||
+    msg->state.size() != count)
+  {
+    RCLCPP_WARN(get_logger(), "Rejected malformed voxel delta from %s",
+      msg->source_id.c_str());
+    return;
+  }
+
+  auto & source = remote_sources_[msg->source_id];
+  const bool epoch_changed = source.occupancy && source.map_epoch != msg->map_epoch;
+  if (!source.occupancy || epoch_changed) {
+    if (epoch_changed) {
+      RCLCPP_WARN(get_logger(), "Map epoch changed for %s; discarding its old remote layer",
+        msg->source_id.c_str());
+    }
+    reset_remote_source(source, msg->map_epoch);
+  }
+
+  if (source.awaiting_full_refresh && !msg->full_refresh) {
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+      "Waiting for a full refresh from %s", msg->source_id.c_str());
+    return;
+  }
+  if ((!msg->full_refresh && msg->version <= source.last_version) ||
+    (msg->full_refresh && !source.awaiting_full_refresh &&
+    msg->version < source.last_version))
+  {
+    return;
+  }
+
+  if (msg->full_refresh) {
+    reset_remote_source(source, msg->map_epoch);
+  }
+
+  const double source_resolution = static_cast<double>(msg->resolution);
+  for (std::size_t index = 0; index < count; ++index) {
+    const uint8_t state = msg->state[index];
+    if (state < surf_multirobot_msgs::msg::VoxelDelta::STATE_OCCUPIED_STATIC ||
+      state > surf_multirobot_msgs::msg::VoxelDelta::STATE_DELETE)
+    {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+        "Ignoring unknown voxel state %u", state);
+      continue;
+    }
+
+    // Expand a coarse source voxel over every local Bonxai voxel it covers.
+    // nextafter keeps the upper face in the half-open source cell.
+    const Eigen::Vector3d lower(
+      static_cast<double>(msg->x[index]) * source_resolution,
+      static_cast<double>(msg->y[index]) * source_resolution,
+      static_cast<double>(msg->z[index]) * source_resolution);
+    const Eigen::Vector3d upper(
+      (static_cast<double>(msg->x[index]) + 1.0) * source_resolution,
+      (static_cast<double>(msg->y[index]) + 1.0) * source_resolution,
+      (static_cast<double>(msg->z[index]) + 1.0) * source_resolution);
+    const Eigen::Vector3d upper_inside(
+      std::nextafter(upper.x(), lower.x()),
+      std::nextafter(upper.y(), lower.y()),
+      std::nextafter(upper.z(), lower.z()));
+    const auto minimum = source.occupancy->worldToVoxel(lower);
+    const auto maximum = source.occupancy->worldToVoxel(upper_inside);
+    const int64_t cells_x = static_cast<int64_t>(maximum.x) - minimum.x + 1;
+    const int64_t cells_y = static_cast<int64_t>(maximum.y) - minimum.y + 1;
+    const int64_t cells_z = static_cast<int64_t>(maximum.z) - minimum.z + 1;
+    constexpr int64_t kMaximumExpandedCells = 4096;
+    if (cells_x <= 0 || cells_y <= 0 || cells_z <= 0 ||
+      cells_x > kMaximumExpandedCells || cells_y > kMaximumExpandedCells ||
+      cells_z > kMaximumExpandedCells ||
+      cells_x * cells_y > kMaximumExpandedCells ||
+      cells_x * cells_y * cells_z > kMaximumExpandedCells)
+    {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+        "Rejected voxel requiring excessive resolution expansion from %s",
+        msg->source_id.c_str());
+      continue;
+    }
+
+    for (int64_t x = minimum.x; x <= maximum.x; ++x) {
+      for (int64_t y = minimum.y; y <= maximum.y; ++y) {
+        for (int64_t z = minimum.z; z <= maximum.z; ++z) {
+          const Bonxai::CoordT coord{
+            static_cast<int32_t>(x), static_cast<int32_t>(y), static_cast<int32_t>(z)};
+          source.occupancy->resetPoint(coord);
+          switch (state) {
+            case surf_multirobot_msgs::msg::VoxelDelta::STATE_OCCUPIED_STATIC:
+              source.occupancy->addHitPoint(coord);
+              source.dynamic_voxels.erase(coord);
+              break;
+            case surf_multirobot_msgs::msg::VoxelDelta::STATE_OCCUPIED_DYNAMIC:
+              source.occupancy->addHitPoint(coord);
+              source.dynamic_voxels.insert(coord);
+              break;
+            case surf_multirobot_msgs::msg::VoxelDelta::STATE_FREE:
+              source.occupancy->addMissPoint(coord);
+              source.dynamic_voxels.erase(coord);
+              break;
+            case surf_multirobot_msgs::msg::VoxelDelta::STATE_DELETE:
+              source.dynamic_voxels.erase(coord);
+              break;
+            default:
+              break;
+          }
+        }
+      }
+    }
+  }
+
+  source.occupancy->updateFreeCellsPreRayTrace();
+  source.map_epoch = msg->map_epoch;
+  source.last_version = msg->version;
+  source.awaiting_full_refresh = false;
+  updated_map_once_ = updated_map_once_ || count > 0U;
+}
+
+void BonxaiServer::reset_remote_source(RemoteSourceLayer & source, uint64_t map_epoch)
+{
+  source.map_epoch = map_epoch;
+  source.last_version = 0U;
+  source.awaiting_full_refresh = true;
+  source.occupancy = std::make_unique<Bonxai::OccupancyMap>(
+    params_.static_resolution, occupancy_map_->getOptions());
+  source.dynamic_voxels.clear();
+}
+
+void BonxaiServer::get_fused_occupied_voxels(
+  std::vector<Bonxai::CoordT> & coords, bool include_static, bool include_dynamic) const
+{
+  std::set<Bonxai::CoordT> unique_coords;
+  if (include_static && occupancy_map_) {
+    std::vector<Bonxai::CoordT> local_static;
+    occupancy_map_->getOccupiedVoxels(local_static);
+    unique_coords.insert(local_static.begin(), local_static.end());
+  }
+  if (include_dynamic && dynamic_obstacle_map_) {
+    std::vector<Bonxai::CoordT> local_dynamic;
+    get_dynamic_obstacle_voxels(local_dynamic);
+    for (const auto & coord : local_dynamic) {
+      const auto position = dynamic_obstacle_map_->getGrid().coordToPos(coord);
+      unique_coords.insert(occupancy_map_->worldToVoxel(
+        Eigen::Vector3d(position.x, position.y, position.z)));
+    }
+  }
+
+  for (const auto & [source_id, source] : remote_sources_) {
+    (void)source_id;
+    if (!source.occupancy || source.awaiting_full_refresh) {
+      continue;
+    }
+    std::vector<Bonxai::CoordT> remote_occupied;
+    source.occupancy->getOccupiedVoxels(remote_occupied);
+    for (const auto & coord : remote_occupied) {
+      const bool dynamic = source.dynamic_voxels.find(coord) != source.dynamic_voxels.end();
+      if ((dynamic && include_dynamic) || (!dynamic && include_static)) {
+        unique_coords.insert(coord);
+      }
+    }
+  }
+  coords.assign(unique_coords.begin(), unique_coords.end());
+}
+
+void BonxaiServer::get_fused_free_voxels(std::vector<Bonxai::CoordT> & coords) const
+{
+  std::set<Bonxai::CoordT> unique_coords;
+  if (occupancy_map_) {
+    std::vector<Bonxai::CoordT> local_free;
+    occupancy_map_->getFreeVoxels(local_free);
+    unique_coords.insert(local_free.begin(), local_free.end());
+  }
+  for (const auto & [source_id, source] : remote_sources_) {
+    (void)source_id;
+    if (!source.occupancy || source.awaiting_full_refresh) {
+      continue;
+    }
+    std::vector<Bonxai::CoordT> remote_free;
+    source.occupancy->getFreeVoxels(remote_free);
+    unique_coords.insert(remote_free.begin(), remote_free.end());
+  }
+
+  std::vector<Bonxai::CoordT> occupied;
+  get_fused_occupied_voxels(occupied, true, true);
+  for (const auto & coord : occupied) {
+    unique_coords.erase(coord);
+  }
+  coords.assign(unique_coords.begin(), unique_coords.end());
 }
 
 void BonxaiServer::init_timers()
@@ -283,14 +501,14 @@ void BonxaiServer::init_timers()
   RCLCPP_INFO(get_logger(), "Cleanup timer started: every %.1fs", params_.cleanup_interval_sec);
   
   // Start stats timer if enabled
-  if (params_.enable_stats && stats_publisher_ && params_.dynamic_voxel_publish_rate > 0.0) {
+  if (params_.enable_stats && stats_publisher_ && params_.stats_publish_rate > 0.0) {
     stats_timer_ = this->create_wall_timer(
-      std::chrono::duration<double>(1.0 / params_.dynamic_voxel_publish_rate),
+      std::chrono::duration<double>(1.0 / params_.stats_publish_rate),
       std::bind(&BonxaiServer::stats_timer_callback, this));
     
     RCLCPP_INFO(get_logger(), 
       "Stats publishing enabled: rate=%.1f Hz, quick=%s",
-      params_.dynamic_voxel_publish_rate,
+      params_.stats_publish_rate,
       params_.quick_stats ? "true" : "false");
   }
 
@@ -674,31 +892,19 @@ void BonxaiServer::handle_get_occupied_voxels(
   
   auto start = std::chrono::steady_clock::now();
   
-  // Get occupied voxels from the static layer plus the dynamic layer.
   std::vector<Bonxai::CoordT> coords;
-  occupancy_map_->getOccupiedVoxels(coords);
-
-  if (params_.dynamic_obstacles_enabled && dynamic_obstacle_map_) {
-    std::vector<Bonxai::CoordT> dynamic_coords;
-    get_dynamic_obstacle_voxels(dynamic_coords);
-    std::set<Bonxai::CoordT> unique_coords(coords.begin(), coords.end());
-    for (const auto& coord : dynamic_coords) {
-      const auto position = dynamic_obstacle_map_->getGrid().coordToPos(coord);
-      unique_coords.insert(occupancy_map_->worldToVoxel(
-        Eigen::Vector3d(position.x, position.y, position.z)));
-    }
-    coords.assign(unique_coords.begin(), unique_coords.end());
-  }
+  get_fused_occupied_voxels(coords, true, params_.dynamic_obstacles_enabled);
   
   // Fill response
   fill_voxel_grid_msg(coords, response->voxel_grid);
   
   // Get statistics
   auto stats = occupancy_map_->getQuickStats();
-  response->occupied_count = stats.occupied_cells;
+  response->occupied_count = coords.size();
   response->total_active_cells = stats.total_active_cells;
   response->occupancy_ratio = stats.occupancy_ratio;
   response->memory_mb = static_cast<float>(stats.total_memory_bytes) / 1048576.0f;
+  response->success = true;
   
   auto end = std::chrono::steady_clock::now();
   auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
@@ -722,19 +928,19 @@ void BonxaiServer::handle_get_free_voxels(
   
   auto start = std::chrono::steady_clock::now();
   
-  // Get free voxels from the static layer.
   std::vector<Bonxai::CoordT> coords;
-  occupancy_map_->getFreeVoxels(coords);
+  get_fused_free_voxels(coords);
   
   // Fill response
   fill_voxel_grid_msg(coords, response->voxel_grid);
   
   // Get statistics
   auto stats = occupancy_map_->getQuickStats();
-  response->free_count = stats.free_cells;
+  response->free_count = coords.size();
   response->total_active_cells = stats.total_active_cells;
   response->occupancy_ratio = stats.occupancy_ratio;
   response->memory_mb = static_cast<float>(stats.total_memory_bytes) / 1048576.0f;
+  response->success = true;
   
   auto end = std::chrono::steady_clock::now();
   auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
@@ -935,19 +1141,7 @@ void BonxaiServer::stats_timer_callback()
   
   sensor_msgs::msg::PointCloud2 pcl_msg;
   std::vector<Bonxai::CoordT> coords;
-  occupancy_map_->getOccupiedVoxels(coords);
-
-  if (params_.dynamic_obstacles_enabled && dynamic_obstacle_map_) {
-    std::vector<Bonxai::CoordT> dynamic_coords;
-    get_dynamic_obstacle_voxels(dynamic_coords);
-    std::set<Bonxai::CoordT> unique_coords(coords.begin(), coords.end());
-    for (const auto& coord : dynamic_coords) {
-      const auto position = dynamic_obstacle_map_->getGrid().coordToPos(coord);
-      unique_coords.insert(occupancy_map_->worldToVoxel(
-        Eigen::Vector3d(position.x, position.y, position.z)));
-    }
-    coords.assign(unique_coords.begin(), unique_coords.end());
-  }
+  get_fused_occupied_voxels(coords, true, params_.dynamic_obstacles_enabled);
 
   fill_pcl_msg(coords, pcl_msg, *occupancy_map_);
 
@@ -980,7 +1174,7 @@ void BonxaiServer::static_voxel_timer_callback()
   reconcile_dynamic_with_static_map();
 
   std::vector<Bonxai::CoordT> coords;
-  occupancy_map_->getOccupiedVoxels(coords);
+  get_fused_occupied_voxels(coords, true, false);
   sensor_msgs::msg::PointCloud2 message;
   fill_pcl_msg(coords, message, *occupancy_map_);
   static_voxel_publisher_->publish(message);
@@ -988,14 +1182,14 @@ void BonxaiServer::static_voxel_timer_callback()
 
 void BonxaiServer::dynamic_voxel_timer_callback()
 {
-  if (!dynamic_obstacle_map_ || !dynamic_voxel_publisher_) {
+  if (!occupancy_map_ || !dynamic_obstacle_map_ || !dynamic_voxel_publisher_) {
     return;
   }
 
   std::vector<Bonxai::CoordT> coords;
-  get_dynamic_obstacle_voxels(coords);
+  get_fused_occupied_voxels(coords, false, true);
   sensor_msgs::msg::PointCloud2 message;
-  fill_pcl_msg(coords, message, *dynamic_obstacle_map_);
+  fill_pcl_msg(coords, message, *occupancy_map_);
   dynamic_voxel_publisher_->publish(message);
 }
 
