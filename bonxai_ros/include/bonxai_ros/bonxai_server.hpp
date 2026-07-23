@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstdint>
 #include <map>
+#include <mutex>
 #include <set>
 #include <tuple>
 #include <vector>
@@ -121,6 +122,8 @@ private:
   void pointcloud_callback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
   void voxel_delta_callback(
     const surf_multirobot_msgs::msg::VoxelDelta::SharedPtr msg);
+  void apply_voxel_delta(
+    RemoteSourceLayer & source, const surf_multirobot_msgs::msg::VoxelDelta & msg);
   void reset_remote_source(RemoteSourceLayer & source, uint64_t map_epoch);
   void get_fused_occupied_voxels(
     std::vector<Bonxai::CoordT> & coords, bool include_static, bool include_dynamic) const;
@@ -185,6 +188,7 @@ private:
   std::unique_ptr<Bonxai::OccupancyMap> dynamic_obstacle_map_;
   std::map<std::tuple<int32_t, int32_t, int32_t>, DynamicCellState> dynamic_obstacle_states_;
   std::map<std::string, RemoteSourceLayer> remote_sources_;
+  mutable std::mutex remote_sources_mutex_;
 
   // TF
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;

@@ -311,35 +311,83 @@ void BonxaiServer::voxel_delta_callback(
     return;
   }
 
-  auto & source = remote_sources_[msg->source_id];
-  const bool epoch_changed = source.occupancy && source.map_epoch != msg->map_epoch;
-  if (!source.occupancy || epoch_changed) {
-    if (epoch_changed) {
-      RCLCPP_WARN(get_logger(), "Map epoch changed for %s; discarding its old remote layer",
-        msg->source_id.c_str());
+  if (msg->full_refresh) {
+    // The receiver emits an empty version-zero full-refresh message as an epoch
+    // reset sentinel. Preserve any currently displayed layer until the actual
+    // refresh arrives instead of briefly swapping in an empty map.
+    if (count == 0U && msg->version == 0U) {
+      std::lock_guard<std::mutex> lock(remote_sources_mutex_);
+      auto [it, inserted] = remote_sources_.try_emplace(msg->source_id);
+      if (inserted || !it->second.occupancy) {
+        reset_remote_source(it->second, msg->map_epoch);
+      }
+      return;
     }
-    reset_remote_source(source, msg->map_epoch);
+
+    {
+      std::lock_guard<std::mutex> lock(remote_sources_mutex_);
+      const auto it = remote_sources_.find(msg->source_id);
+      if (it != remote_sources_.end() && it->second.occupancy &&
+        it->second.map_epoch != msg->map_epoch)
+      {
+        RCLCPP_WARN(get_logger(),
+          "Map epoch changed for %s; replacing its remote layer after refresh is ready",
+          msg->source_id.c_str());
+      }
+      if (it != remote_sources_.end() && it->second.occupancy &&
+        it->second.map_epoch == msg->map_epoch &&
+        !it->second.awaiting_full_refresh &&
+        msg->version < it->second.last_version)
+      {
+        return;
+      }
+    }
+
+    // Build the replacement without exposing a cleared or partially populated
+    // layer to fused-map publishers. Only the final move assignment is locked.
+    RemoteSourceLayer replacement;
+    reset_remote_source(replacement, msg->map_epoch);
+    apply_voxel_delta(replacement, *msg);
+    {
+      std::lock_guard<std::mutex> lock(remote_sources_mutex_);
+      const auto current = remote_sources_.find(msg->source_id);
+      if (current != remote_sources_.end() && current->second.occupancy &&
+        current->second.map_epoch == msg->map_epoch &&
+        current->second.last_version > msg->version)
+      {
+        return;
+      }
+      remote_sources_[msg->source_id] = std::move(replacement);
+    }
+    updated_map_once_ = updated_map_once_ || count > 0U;
+    return;
   }
 
-  if (source.awaiting_full_refresh && !msg->full_refresh) {
+  std::lock_guard<std::mutex> lock(remote_sources_mutex_);
+  auto & source = remote_sources_[msg->source_id];
+  if (!source.occupancy) {
+    reset_remote_source(source, msg->map_epoch);
+  }
+  if (source.map_epoch != msg->map_epoch || source.awaiting_full_refresh) {
     RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
       "Waiting for a full refresh from %s", msg->source_id.c_str());
     return;
   }
-  if ((!msg->full_refresh && msg->version <= source.last_version) ||
-    (msg->full_refresh && !source.awaiting_full_refresh &&
-    msg->version < source.last_version))
-  {
+  if (msg->version <= source.last_version) {
     return;
   }
 
-  if (msg->full_refresh) {
-    reset_remote_source(source, msg->map_epoch);
-  }
+  apply_voxel_delta(source, *msg);
+  updated_map_once_ = updated_map_once_ || count > 0U;
+}
 
-  const double source_resolution = static_cast<double>(msg->resolution);
+void BonxaiServer::apply_voxel_delta(
+  RemoteSourceLayer & source, const surf_multirobot_msgs::msg::VoxelDelta & msg)
+{
+  const std::size_t count = msg.x.size();
+  const double source_resolution = static_cast<double>(msg.resolution);
   for (std::size_t index = 0; index < count; ++index) {
-    const uint8_t state = msg->state[index];
+    const uint8_t state = msg.state[index];
     if (state < surf_multirobot_msgs::msg::VoxelDelta::STATE_OCCUPIED_STATIC ||
       state > surf_multirobot_msgs::msg::VoxelDelta::STATE_DELETE)
     {
@@ -351,13 +399,13 @@ void BonxaiServer::voxel_delta_callback(
     // Expand a coarse source voxel over every local Bonxai voxel it covers.
     // nextafter keeps the upper face in the half-open source cell.
     const Eigen::Vector3d lower(
-      static_cast<double>(msg->x[index]) * source_resolution,
-      static_cast<double>(msg->y[index]) * source_resolution,
-      static_cast<double>(msg->z[index]) * source_resolution);
+      static_cast<double>(msg.x[index]) * source_resolution,
+      static_cast<double>(msg.y[index]) * source_resolution,
+      static_cast<double>(msg.z[index]) * source_resolution);
     const Eigen::Vector3d upper(
-      (static_cast<double>(msg->x[index]) + 1.0) * source_resolution,
-      (static_cast<double>(msg->y[index]) + 1.0) * source_resolution,
-      (static_cast<double>(msg->z[index]) + 1.0) * source_resolution);
+      (static_cast<double>(msg.x[index]) + 1.0) * source_resolution,
+      (static_cast<double>(msg.y[index]) + 1.0) * source_resolution,
+      (static_cast<double>(msg.z[index]) + 1.0) * source_resolution);
     const Eigen::Vector3d upper_inside(
       std::nextafter(upper.x(), lower.x()),
       std::nextafter(upper.y(), lower.y()),
@@ -376,7 +424,7 @@ void BonxaiServer::voxel_delta_callback(
     {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
         "Rejected voxel requiring excessive resolution expansion from %s",
-        msg->source_id.c_str());
+        msg.source_id.c_str());
       continue;
     }
 
@@ -411,10 +459,9 @@ void BonxaiServer::voxel_delta_callback(
   }
 
   source.occupancy->updateFreeCellsPreRayTrace();
-  source.map_epoch = msg->map_epoch;
-  source.last_version = msg->version;
+  source.map_epoch = msg.map_epoch;
+  source.last_version = msg.version;
   source.awaiting_full_refresh = false;
-  updated_map_once_ = updated_map_once_ || count > 0U;
 }
 
 void BonxaiServer::reset_remote_source(RemoteSourceLayer & source, uint64_t map_epoch)
@@ -446,6 +493,7 @@ void BonxaiServer::get_fused_occupied_voxels(
     }
   }
 
+  std::lock_guard<std::mutex> lock(remote_sources_mutex_);
   for (const auto & [source_id, source] : remote_sources_) {
     (void)source_id;
     if (!source.occupancy || source.awaiting_full_refresh) {
@@ -471,14 +519,17 @@ void BonxaiServer::get_fused_free_voxels(std::vector<Bonxai::CoordT> & coords) c
     occupancy_map_->getFreeVoxels(local_free);
     unique_coords.insert(local_free.begin(), local_free.end());
   }
-  for (const auto & [source_id, source] : remote_sources_) {
-    (void)source_id;
-    if (!source.occupancy || source.awaiting_full_refresh) {
-      continue;
+  {
+    std::lock_guard<std::mutex> lock(remote_sources_mutex_);
+    for (const auto & [source_id, source] : remote_sources_) {
+      (void)source_id;
+      if (!source.occupancy || source.awaiting_full_refresh) {
+        continue;
+      }
+      std::vector<Bonxai::CoordT> remote_free;
+      source.occupancy->getFreeVoxels(remote_free);
+      unique_coords.insert(remote_free.begin(), remote_free.end());
     }
-    std::vector<Bonxai::CoordT> remote_free;
-    source.occupancy->getFreeVoxels(remote_free);
-    unique_coords.insert(remote_free.begin(), remote_free.end());
   }
 
   std::vector<Bonxai::CoordT> occupied;
