@@ -41,6 +41,7 @@ struct ServerParams
   std::string frame_id;
   std::string base_frame_id;
   std::string topic_in;
+  bool qos_reliable{false};  // subscribe to topic_in reliably instead of SensorDataQoS (best effort)
 
   double cleanup_interval_sec{300.0};
 
@@ -143,6 +144,7 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pointcloud_sub_;
 
   std::unique_ptr<RollingBonxai::RollingOccupancyMap> occupancy_map_;
+  uint64_t point_clouds_processed_{0};
 
   // Stats publishers
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr voxel_pub_;

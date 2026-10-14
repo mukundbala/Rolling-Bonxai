@@ -18,8 +18,8 @@ RollingOccupancyMap::RollingOccupancyMap(const AllParameters& params, std::share
     // Initialise transition manager
     transition_manager_ = std::make_unique<TransitionManager>(params_.hysteresis_ratio, *c_sys_);
 
-    // Initialise the loading policy
-    if (params_.loading_policy_name == "neighbourhood") {
+    // Initialise the loading policy (both spellings accepted; the param namespace is "neighborhood")
+    if (params_.loading_policy_name == "neighbourhood" || params_.loading_policy_name == "neighborhood") {
         loading_policy_ = std::make_unique<NeighborhoodPolicy>(params_.nb_radius);
     }
     else if (params_.loading_policy_name == "planar") {
@@ -36,7 +36,8 @@ RollingOccupancyMap::RollingOccupancyMap(const AllParameters& params, std::share
             std::chrono::seconds(params_.temporal_max_age_s));
     }
     else {
-        // Silent default to neighbourhood
+        logger_->log_warn("[RollingBonxai]: Unknown loading policy '" + params_.loading_policy_name +
+            "' (expected neighbourhood, planar or temporal); falling back to neighbourhood");
         loading_policy_ = std::make_unique<NeighborhoodPolicy>(params_.nb_radius);
     }
 
@@ -121,8 +122,6 @@ void RollingOccupancyMap::updateOccupancy(const std::vector<Vector3D>& points,
         return;
     }
 
-    logger_->log_info("[RollingBonxai]: Dispatching rays to chunks");
-    
     // square of max range for quick comparisons
     const double max_range_sq = max_range * max_range;
 

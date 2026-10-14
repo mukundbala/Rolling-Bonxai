@@ -34,6 +34,7 @@ void RollingBonxaiServer::loadParameters()
   server_params_.frame_id = declare_parameter<std::string>("frame_id", "map");
   server_params_.base_frame_id = declare_parameter<std::string>("base_frame_id", "base_footprint");
   server_params_.topic_in = declare_parameter<std::string>("topic_in", "/points");
+  server_params_.qos_reliable = declare_parameter<bool>("qos_reliable", false);
 
   server_params_.cleanup_interval_sec =
     declare_parameter<double>("server.cleanup_interval_sec", 300.0);
@@ -121,10 +122,14 @@ void RollingBonxaiServer::initMap()
 
 void RollingBonxaiServer::initSubscriber()
 {
+  // Best effort drops large clouds whose fragments are lost, so bag playback uses reliable;
+  // a reliable subscriber won't connect to a best-effort publisher.
+  const rclcpp::QoS qos = server_params_.qos_reliable ?
+    rclcpp::QoS(rclcpp::KeepLast(50)).reliable() : rclcpp::SensorDataQoS();
   pointcloud_sub_ =
     create_subscription<sensor_msgs::msg::PointCloud2>(
       server_params_.topic_in,
-      rclcpp::SensorDataQoS(),
+      qos,
       std::bind(&RollingBonxaiServer::pointcloudCallback, this, std::placeholders::_1));
 }
 
@@ -249,6 +254,7 @@ void RollingBonxaiServer::publishStats()
   qs_msg.total_insertions = qs.total_insertions;
   qs_msg.hit_points_added = qs.hit_points_added;
   qs_msg.miss_points_added = qs.miss_points_added;
+  qs_msg.point_clouds_processed = point_clouds_processed_;
   qs_msg.has_data = qs.has_data;
   quick_occ_stats_pub_->publish(qs_msg);
 }
@@ -377,6 +383,7 @@ void RollingBonxaiServer::pointcloudCallback(
     occupancy_map_->insertPointCloud(
       pts, origin, linvel,
       rolling_params_.map_params.sensor_max_range);
+    ++point_clouds_processed_;
   }
 }
 

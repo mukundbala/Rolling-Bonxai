@@ -102,6 +102,12 @@ install(
   DESTINATION lib/${PROJECT_NAME}
 )
 
+# Install Python helper nodes
+install(
+  PROGRAMS scripts/tf_path_publisher.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 # Install header files
 install(
   DIRECTORY include/

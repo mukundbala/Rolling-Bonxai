@@ -24,6 +24,9 @@
   <depend>libpcl-all-dev</depend>
   <depend>eigen</depend>
   
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+
   <depend>bonxai_core</depend>
   <depend>bonxai_map</depend>
   <depend>rolling_bonxai</depend>

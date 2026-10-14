@@ -59,3 +59,12 @@ chunks/
 
 archive/
 private_docs/
+# Downloaded data, converted bags and experiment outputs stay local; only the folder skeleton (.gitkeep) is tracked.
+# Kept last so it overrides the generic chunks/ and logs/ rules above.
+datasets/data/*
+!datasets/data/.gitkeep
+datasets/bags/*
+!datasets/bags/.gitkeep
+experiments/**
+!experiments/**/
+!experiments/**/.gitkeep

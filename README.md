@@ -46,55 +46,88 @@ source install/setup.bash
 
 ## Launching Rolling Bonxai
 
-### Option 1: As a Composable Node (Recommended for Production)
+Every workflow below has a Rolling Bonxai launch file in `rolling_bonxai_ros` and an equivalent for plain (non-rolling) Bonxai in `bonxai_ros`, so the two can be compared on the same input. All of them start a Foxglove Bridge (`foxglove_port`, default `8765`) for visualization.
 
-The composable node option runs `RollingBonxaiServer` inside an `rclcpp_components` container, enabling **zero-copy intra-process communication** when combined with other composable nodes (e.g., the ZED camera wrapper).
+### 1. Checking a dataset bag
+
+Dataset bags are TartanGround trajectories converted to rosbag2/MCAP with `datasets/scripts/tartanground_to_mcap.py`. They live in `datasets/bags/<Name>.bag` and contain `/lidar`, `/camera/image_raw/compressed`, `/tf` and `/tf_static`. To check a bag before mapping it, play it with the ground-truth trajectory and no mapper:
 
 ```bash
+ros2 launch rolling_bonxai_ros bag_check.launch.py bag:=Hospital
+ros2 launch rolling_bonxai_ros bag_check.launch.py bag:=ForestEnv rate:=4.0 loop:=true
+```
+
+The `map -> base_link` trajectory is published as a `nav_msgs/Path` on `/trajectory`. In Foxglove, check that the path is continuous and that `/lidar` stays aligned with the `map` frame as the path moves.
+
+### 2. Mapping a dataset bag (with optional stats recording)
+
+These launch files start the mapper on sim time, then play the bag with `--clock` after `play_delay` seconds:
+
+```bash
+ros2 launch rolling_bonxai_ros rolling_bonxai_bag_mapping.launch.py bag:=Hospital
+ros2 launch bonxai_ros bonxai_bag_mapping.launch.py bag:=Hospital
+```
+
+Add `record:=true` to record the mapper's stats topics to an MCAP bag. Recording starts together with playback:
+
+```bash
+ros2 launch rolling_bonxai_ros rolling_bonxai_bag_mapping.launch.py bag:=Hospital record:=true
+ros2 launch bonxai_ros bonxai_bag_mapping.launch.py bag:=Hospital record:=true record_voxels:=true
+```
+
+Recordings are named by the run's start time:
+
+```
+experiments/
+├── rolling_bonxai/
+│   ├── 2026-10-14_06-41-03/               # /rolling_bonxai/{quick_occupancy_stats, chunk_stats, transition_state}
+│   └── chunks/2026-10-14_06-41-03/        # that run's saved chunks
+└── bonxai/2026-10-14_06-41-30/            # /bonxai/occupancy_stats
+```
+
+Every Rolling Bonxai bag run, recorded or not, saves its chunks to a fresh `chunks/<datetime>/` folder, so no run starts from a previous run's map. Delete old chunk folders when you no longer need them.
+
+- `record_voxels:=true` also records the occupied-voxel cloud. That cloud is the whole map on every message, so it makes the bags much larger.
+- `experiments_dir` changes the output location.
+- Recording continues after the bag finishes, until you press Ctrl-C.
+- The recorder is also available on its own as `stats_recorder.launch.py` in either package, e.g. for live runs.
+
+| Argument | Default | |
+|---|---|---|
+| `bag` | — | Bag name; `Hospital` → `<bags_dir>/Hospital.bag` |
+| `bags_dir` | `datasets/bags` | |
+| `rate` | `1.0` | Playback rate |
+| `play_delay` | `3.0` | Seconds to wait for the mapper before playback |
+| `record` / `record_voxels` | `false` | Stats recording, see above |
+| `experiments_dir` | `experiments` | |
+
+### 3. Mapping from a live camera (ZED2i example)
+
+`rolling_bonxai_mapping.launch.py` starts the mapper in an `rclcpp_components` container, plus the Foxglove Bridge. Because the mapper runs as a component, it can use **zero-copy intra-process communication** with other components such as the ZED wrapper. The point cloud source is launched separately. For a ZED2i:
+
+```bash
+# terminal 1: camera (wraps zed_wrapper's zed_camera.launch.py with params/zed2i.yaml)
+ros2 launch rolling_bonxai_ros zed2i_wrapper.launch.py
+
+# terminal 2: mapper (bonxai_ros bonxai_mapping.launch.py for plain Bonxai)
 ros2 launch rolling_bonxai_ros rolling_bonxai_mapping.launch.py
+
+# optional, terminal 3: stats recording
+ros2 launch rolling_bonxai_ros stats_recorder.launch.py
 ```
 
-You can override the container name and Foxglove visualization port:
+The mapper reads `rolling_bonxai_ros/params/rolling_bonxai_params.yaml`, which defaults to the ZED topics: `topic_in: /zed/zed_node/point_cloud/cloud_registered`, `base_frame_id: zed_camera_link`, `frame_id: map`. For any other sensor:
+- set `topic_in` to its `sensor_msgs/PointCloud2` topic and `base_frame_id` to its body frame;
+- make sure TF is available from the sensor frame to `frame_id`.
 
-```bash
-ros2 launch rolling_bonxai_ros rolling_bonxai_mapping.launch.py \
-  container_name:=my_container \
-  foxglove_port:=8765
-```
+### Without a launch file
 
-The launch file will:
-1. Start an `rclcpp_components` container
-2. Load `RollingBonxai::RollingBonxaiServer` into that container
-3. Start a Foxglove Bridge for visualization
-
-> **Point cloud source:** The node subscribes to the topic defined in `topic_in` (default: `/zed/zed_node/point_cloud/cloud_registered`). Make sure your sensor driver is running and publishing to this topic before or alongside this launch file.
-
-### Option 2: As a Standalone Executable
-
-For simpler setups or debugging, run the standalone binary directly:
+For debugging, the standalone executable takes the same parameters:
 
 ```bash
 ros2 run rolling_bonxai_ros rolling_bonxai_server_node \
-  --ros-args --params-file /path/to/rolling_bonxai_params.yaml
-```
-
-Or pass parameters individually:
-
-```bash
-ros2 run rolling_bonxai_ros rolling_bonxai_server_node \
-  --ros-args \
-  -p frame_id:=map \
-  -p topic_in:=/your/pointcloud/topic \
-  -p occupancy.resolution:=0.05
-```
-
-### Option 3: Using a Params File
-
-The recommended way to configure the node is to provide a YAML parameters file (see `rolling_bonxai_ros/params/rolling_bonxai_params.yaml` as a template):
-
-```bash
-ros2 run rolling_bonxai_ros rolling_bonxai_server_node \
-  --ros-args --params-file rolling_bonxai_params.yaml
+  --ros-args --params-file rolling_bonxai_ros/params/rolling_bonxai_params.yaml \
+  -p topic_in:=/your/pointcloud/topic
 ```
 
 ---
