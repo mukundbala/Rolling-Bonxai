@@ -1,5 +1,5 @@
 # ============================================================
-# .docker/Dockerfile.rolling_bonxai
+# .docker/Dockerfile.rolling_bonxai_humble
 #
 # Two-stage build:
 #   deps  — all apt deps, no source (used by devcontainer)
@@ -9,8 +9,8 @@
 # DDS discovery works across containers on network_mode: host.
 #
 # Build from repo root:
-#   docker build -f .docker/Dockerfile.rolling_bonxai \
-#                --target build -t rolling_bonxai:latest .
+#   docker build -f .docker/Dockerfile.rolling_bonxai_humble \
+#                --target build -t rolling_bonxai:humble .
 # ============================================================
 
 # ── Stage 1: deps ────────────────────────────────────────────
@@ -47,6 +47,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-std-srvs \
     ros-humble-rclcpp-components \
     ros-humble-foxglove-bridge \
+    # Bag tooling for datasets/ (TartanGround -> MCAP)
+    ros-humble-rosbag2 \
+    ros-humble-rosbag2-storage-mcap \
+    python3-numpy \
     # Gazebo Harmonic bridge (for /clock topic relay from SITL)
     ros-humble-ros-gz-bridge \
     # C++ dependencies

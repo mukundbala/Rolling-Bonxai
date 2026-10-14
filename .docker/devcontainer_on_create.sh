@@ -14,7 +14,10 @@ echo "  Rolling Bonxai devcontainer — first-time setup"
 echo "  ROS distro: ${DISTRO}"
 echo "═══════════════════════════════════════════════════════"
 
+# ROS setup scripts reference unset variables (e.g. AMENT_TRACE_SETUP_FILES)
+set +u
 source "/opt/ros/${DISTRO}/setup.bash"
+set -u
 
 cd /ros2_ws
 

@@ -10,8 +10,8 @@
     // Build the deps stage only — source is bind-mounted in,
     // not baked into the image. This makes rebuilds instant.
     "build": {
-        "dockerfile": "../.docker/Dockerfile.rolling_bonxai",
-        "context": "..",
+        "dockerfile": "../../.docker/Dockerfile.rolling_bonxai_humble",
+        "context": "../..",
         "target": "deps"
     },
 
@@ -59,18 +59,27 @@
                 "cmake.buildDirectory": "/ros2_ws/build"
             },
             "extensions": [
+                "anthropic.claude-code",
+                "rooveterinaryinc.roo-cline",
                 "ms-vscode.cpptools",
                 "ms-vscode.cpptools-extension-pack",
-                "ms-iot.vscode-ros",
+                "ms-vscode.cpptools-themes",
+                "ms-vscode.cpp-devtools",
+                "ms-vscode.cmake-tools",
                 "ms-python.python",
-                "twxs.cmake",
-                "ms-vscode.cmake-tools"
+                "ms-python.vscode-pylance",
+                "ms-python.debugpy",
+                "ms-python.vscode-python-envs",
+                "ms-toolsai.jupyter-keymap",
+                "ranch-hand-robotics.rde-ros-2",
+                "ranch-hand-robotics.urdf-editor",
+                "mhutchie.git-graph",
+                "ms-vsliveshare.vsliveshare",
+                "enkia.tokyo-night",
+                "kirikev.anti-red-glass-theme",
+                "repreng.csv",
+                "tomoki1207.pdf"
             ]
         }
-    },
-
-    "forwardPorts": [8765],
-    "portsAttributes": {
-        "8765": { "label": "Foxglove Bridge" }
     }
 }

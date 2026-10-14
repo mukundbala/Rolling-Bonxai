@@ -47,6 +47,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-std-srvs \
     ros-jazzy-rclcpp-components \
     ros-jazzy-foxglove-bridge \
+    # Bag tooling for datasets/ (TartanGround -> MCAP)
+    ros-jazzy-rosbag2 \
+    ros-jazzy-rosbag2-storage-mcap \
+    python3-numpy \
     # Gazebo Harmonic bridge (for /clock topic relay from SITL)
     ros-jazzy-ros-gz-bridge \
     # C++ dependencies
