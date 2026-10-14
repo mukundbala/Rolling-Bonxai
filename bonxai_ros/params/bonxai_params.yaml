@@ -3,25 +3,26 @@ bonxai_server_node:
     frame_id: "map"
     base_frame_id: "zed_camera_link"
     topic_in: "/zed/zed_node/point_cloud/cloud_registered"
+    qos_reliable: false # true = reliable subscription (bag playback); false = SensorDataQoS (live sensors)
 
     occupancy:
-      resolution: 0.02
+      resolution: 0.1
       occupancy_min_z: -100.0
       occupancy_max_z: 100.0
       occupancy_threshold: 0.50
     
     sensor_model:
-      max_range: 10.0
+      max_range: 9.0
       hit: 0.7
       miss: 0.4
       min: 0.12
       max: 0.97
 
     server:
-      cleanup_interval_sec: 300.0
+      cleanup_interval_sec: 1000000000.0 # effectively off; Rolling Bonxai has no periodic cleanup
 
     stats:
       enable_stats: true
       quick_stats: true
-      publish_occupied_voxels: true
-      publish_rate: 3.0 #Hz
+      publish_occupied_voxels: false
+      publish_rate: 1.0 #Hz

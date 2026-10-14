@@ -51,6 +51,9 @@ void BonxaiServer::load_parameters()
   params_.topic_in =
     this->declare_parameter<std::string>("topic_in", "/points");
 
+  params_.qos_reliable =
+    this->declare_parameter<bool>("qos_reliable", false);
+
   params_.resolution =
     this->declare_parameter<double>("occupancy.resolution", 0.05);
   
@@ -146,10 +149,12 @@ void BonxaiServer::init_publishers()
     stats_publisher_ = this->create_publisher<bonxai_msgs::msg::OccupancyMapStats>(
       "/bonxai/occupancy_stats",
       rclcpp::QoS(10));
-    
-    occupied_voxel_publisher_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
-      "/bonxai/occupied_voxels",rclcpp::QoS(10));
-  
+
+    if (params_.publish_occupied_voxels) {
+      occupied_voxel_publisher_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
+        "/bonxai/occupied_voxels",rclcpp::QoS(10));
+    }
+
     RCLCPP_INFO(get_logger(), "Stats publisher created: /bonxai/occupancy_stats");
   }
 }
@@ -158,13 +163,17 @@ void BonxaiServer::init_subscribers()
 {
   RCLCPP_INFO(get_logger(), "Initializing subscribers...");
   
-  // Subscribe to point cloud
+  // Subscribe to point cloud. Best effort drops large clouds whose fragments are lost, so bag
+  // playback uses reliable; a reliable subscriber won't connect to a best-effort publisher.
+  const rclcpp::QoS qos = params_.qos_reliable ?
+    rclcpp::QoS(rclcpp::KeepLast(50)).reliable() : rclcpp::SensorDataQoS();
   cloud_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
     params_.topic_in,
-    rclcpp::SensorDataQoS(),
+    qos,
     std::bind(&BonxaiServer::pointcloud_callback, this, std::placeholders::_1));
-  
-  RCLCPP_INFO(get_logger(), "Subscribed to: %s", params_.topic_in.c_str());
+
+  RCLCPP_INFO(get_logger(), "Subscribed to: %s (%s)", params_.topic_in.c_str(),
+    params_.qos_reliable ? "reliable" : "best effort");
 }
 
 void BonxaiServer::init_services()
@@ -555,18 +564,20 @@ void BonxaiServer::stats_timer_callback()
     return;
   }
   
-  sensor_msgs::msg::PointCloud2 pcl_msg;
-  std::vector<Bonxai::CoordT> coords;
-  occupancy_map_->getOccupiedVoxels(coords);
-  fill_pcl_msg(coords,pcl_msg);
+  // Building the occupied-voxel cloud walks the whole map, so only do it when it is published
+  if (occupied_voxel_publisher_) {
+    sensor_msgs::msg::PointCloud2 pcl_msg;
+    std::vector<Bonxai::CoordT> coords;
+    occupancy_map_->getOccupiedVoxels(coords);
+    fill_pcl_msg(coords,pcl_msg);
+    occupied_voxel_publisher_->publish(pcl_msg);
+    RCLCPP_INFO_STREAM(get_logger(),"Got " << coords.size() << "Occupied Voxels!");
+  }
 
   bonxai_msgs::msg::OccupancyMapStats msg;
   fill_stats_msg(msg);
-  
-  stats_publisher_->publish(msg);
-  occupied_voxel_publisher_->publish(pcl_msg);
 
-  RCLCPP_INFO_STREAM(get_logger(),"Got " << coords.size() << "Occupied Voxels!");
+  stats_publisher_->publish(msg);
   RCLCPP_INFO(get_logger(),
     "Stats published: %lu active cells, %.1f MB, occupancy=%.2f%%",
     msg.total_active_cells,

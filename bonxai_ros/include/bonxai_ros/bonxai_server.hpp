@@ -38,6 +38,7 @@ struct BonxaiParams
   std::string frame_id;
   std::string base_frame_id;
   std::string topic_in;
+  bool qos_reliable{false};  // subscribe to topic_in reliably instead of SensorDataQoS (best effort)
 
   double occupancy_min_z{0.0};
   double occupancy_max_z{0.0};
