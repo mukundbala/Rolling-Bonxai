@@ -51,6 +51,9 @@ void RollingBonxaiServer::loadParameters()
   server_params_.stats_publish_rate =
     declare_parameter<double>("stats.publish_rate", 1.0);
 
+  server_params_.chunk_alpha =
+    declare_parameter<double>("visualization.chunk_alpha", 0.15);
+
   auto& mp = rolling_params_.map_params;
 
   mp.resolution = declare_parameter<double>("occupancy.resolution", 0.05);
@@ -295,7 +298,7 @@ void RollingBonxaiServer::publishChunkVisualization()
       m.color.g = 0.0f;
       m.color.b = 1.0f;
     }
-    m.color.a = 0.15f;
+    m.color.a = static_cast<float>(server_params_.chunk_alpha);
     arr.markers.push_back(m);
   }
 
@@ -317,7 +320,7 @@ void RollingBonxaiServer::publishChunkVisualization()
     m.color.r = 0.5f;
     m.color.g = 0.5f;
     m.color.b = 0.5f;
-    m.color.a = 0.15f;
+    m.color.a = static_cast<float>(server_params_.chunk_alpha);
     arr.markers.push_back(m);
   }
 

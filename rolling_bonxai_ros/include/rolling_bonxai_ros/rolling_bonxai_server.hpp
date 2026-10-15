@@ -49,6 +49,7 @@ struct ServerParams
   bool quick_stats{true};
   bool publish_occupied_voxels{true};
   double stats_publish_rate{1.0};
+  double chunk_alpha{0.15};  // opacity of the chunk boxes on /rolling_bonxai/chunk_markers
 };
 
 class RollingBonxaiServer : public rclcpp::Node

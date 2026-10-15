@@ -53,3 +53,6 @@ rolling_bonxai_server_node:
       quick_stats: true
       publish_occupied_voxels: false
       publish_rate: 1.0 #Hz
+
+    visualization:
+      chunk_alpha: 0.06 # opacity of the chunk boxes on /rolling_bonxai/chunk_markers [0,1]; was hard-coded 0.15
