@@ -4,13 +4,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Rolling-Bonxai is a C++17 ROS 2 (colcon) workspace that adds a chunked, rolling-window layer on top of [Bonxai](https://github.com/facontidavide/Bonxai) sparse voxel occupancy grids. Only chunks near the robot stay in memory; the rest are serialized to disk and reloaded per a pluggable policy. The repo root is a set of sibling ROS packages (it is expected to live in a colcon workspace's `src/`; the devcontainers in `.devcontainer/` + `.docker/` mount it at `/ros2_ws/src` for Humble and Jazzy).
+Rolling-Bonxai is a C++17 ROS 2 (colcon) workspace that adds a chunked, rolling-window layer on top of [Bonxai](https://github.com/facontidavide/Bonxai) sparse voxel occupancy grids. Only chunks near the robot stay in memory; the rest are serialized to disk and reloaded per a pluggable policy. The repo root is a set of sibling ROS packages (it is expected to live in a colcon workspace's `src/`; the devcontainers in `.devcontainer/` + `.docker/` mount it at `/ros2_ws/src/Rolling-Bonxai` for Humble and Jazzy).
+
+## Where to look
+
+The docs are the source of truth; read the relevant one before changing behaviour, and keep it updated when you do.
+
+| File | Covers |
+|---|---|
+| `README.md` | Project description, demo videos, published results (memory and CPU comparison against plain Bonxai) |
+| `USAGE.md` | Build, devcontainer, getting the datasets, every launch workflow, running experiments (configuration, known issues, follow-ups), full parameter reference, loading-policy tips |
+| `ARCHITECTURE.md` | Packages, engine subsystems, data-flow diagram, source-file map, **known limitations** |
+| `devlogs/<date>/` | Dated engineering notes, e.g. `devlogs/2026-10-10/bottleneck_*.md`: CPU profiles and top-10 bottlenecks with proposed fixes |
+| `datasets/scripts/` | Dataset download/convert (`fetch_datasets.sh`) and the experiment pipeline (`run_pipeline.sh`); each script's docstring explains its options |
+
+There is no handoff file; open work lives in ARCHITECTURE.md (Known Limitations), USAGE.md (Possible follow-ups) and the devlogs.
 
 ## Build / test / run
 
 ```bash
 # from the colcon workspace root (not this repo's root)
-colcon build --packages-select bonxai_core bonxai_map rolling_bonxai rolling_bonxai_msgs rolling_bonxai_ros
+colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 source install/setup.bash
 
 # tests (gtest via ament_cmake_gtest; binaries: test_common, test_coordinate_system,
@@ -22,21 +36,34 @@ colcon test --packages-select rolling_bonxai --event-handlers console_direct+
 # benchmarks (off by default; nanobench, see rolling_bonxai/benchmark/README.md)
 colcon build --packages-select rolling_bonxai --cmake-args -DBUILD_BENCHMARKS=ON
 
-# run
-ros2 launch rolling_bonxai_ros rolling_bonxai_mapping.launch.py   # composable node + Foxglove bridge
-ros2 run rolling_bonxai_ros rolling_bonxai_server_node --ros-args --params-file rolling_bonxai_ros/params/rolling_bonxai_params.yaml
+# datasets, then a bag-driven run, then the full experiment pipeline (details in USAGE.md)
+src/Rolling-Bonxai/datasets/scripts/fetch_datasets.sh
+ros2 launch rolling_bonxai_ros rolling_bonxai_bag_mapping.launch.py bag:=Hospital rate:=0.5
+src/Rolling-Bonxai/datasets/scripts/run_pipeline.sh
 ```
 
-Compiled with `-Wall -Wextra -Wpedantic`. The node needs a `sensor_msgs/PointCloud2` source (`topic_in`) and TF from sensor frame to `frame_id`. `README.md` has the full parameter reference and policy-selection guidance.
+Compiled with `-Wall -Wextra -Wpedantic`. The node needs a `sensor_msgs/PointCloud2` source (`topic_in`) and TF from sensor frame to `frame_id`.
+
+## Working conventions and gotchas
+
+- **Install is `--symlink-install`:** launch, params and Python edits take effect without rebuilding; C++ needs `colcon build`. CMake caches `CMAKE_CXX_FLAGS`; profiling builds add `-fno-omit-frame-pointer -g` (see USAGE.md, Running Experiments) and stay that way until rebuilt with `-DCMAKE_CXX_FLAGS=""`.
+- **The params YAMLs are shared** by interactive launches and the experiment pipeline. If you change them for a demo, restore the experiment values (USAGE.md, Experiment configuration table) before any batch. Write large floats out in full (`1000000000.0`): ROS reads `1.0e9` as a string.
+- **Keep the reach rule:** `(radius − hysteresis_ratio) × chunk_size ≥ sensor_model.max_range`, or rays are silently dropped.
+- **Frames:** TartanGround poses are NED/FRD; `datasets/scripts/tartanground_to_mcap.py` converts to ROS ENU `map` / FLU `base_link`. Bags from before 2026-10-14 are mirrored; regenerate them.
+- **Experiments are isolated:** batch runs use `ROS_DOMAIN_ID=42` and Foxglove port 8766; interactive runs use domain 0 and port 8765. A run only counts if `point_clouds_processed` equals the bag's scan count (`summary.csv` → `complete`).
+- **Git-ignored data:** `datasets/data/`, `datasets/bags/` and `experiments/**` (only `.gitkeep` files are tracked). Never delete raw `datasets/data/` without asking; results in `experiments/` are regenerated by the pipeline. Copy figures meant for the README into `media/`.
+- **File ownership:** the devcontainer runs as `ubuntu` (uid 1000). If something ends up root-owned on the host (e.g. from an older root container), `sudo chown -R 1000:1000` the repo.
+- **perf:** `/usr/local/bin/perf` points at the Ubuntu `linux-tools` binary because Ubuntu's `perf` wrapper refuses non-Ubuntu host kernels. `hotspot` needs `QT_QPA_PLATFORM=wayland` under Wayland.
 
 ## Package layout
 
 - `bonxai_core` — vendored upstream header-only voxel grid (`Bonxai::VoxelGrid`, serialization). Treat as third-party.
 - `bonxai_map` — `OccupancyMap`: log-odds (fixed-point ×1e6) probabilistic map over `VoxelGrid<CellOcc>`; `insertPointCloud` buffers hit endpoints then ray-traces free cells. Move-only.
-- `bonxai_msgs`, `bonxai_ros` — upstream-style non-rolling ROS wrapper (plain Bonxai server); separate from the rolling variant.
+- `bonxai_msgs`, `bonxai_ros` — upstream-style non-rolling ROS wrapper (plain Bonxai server); separate from the rolling variant, used as the experiment baseline.
 - `rolling_bonxai` — the engine (no ROS dependency in the logic; ROS only for logging via `logger.hpp` interface).
-- `rolling_bonxai_msgs` — `ChunkStats`, `QuickOccupancyStats`, `RollingState`.
-- `rolling_bonxai_ros` — `RollingBonxaiServer` (rclcpp component + standalone `rolling_bonxai_server_node`), launch files, params; implements `ros_logger.hpp`.
+- `rolling_bonxai_msgs` — `ChunkStats`, `QuickOccupancyStats` (incl. `point_clouds_processed`), `RollingState`.
+- `rolling_bonxai_ros` — `RollingBonxaiServer` (rclcpp component + standalone `rolling_bonxai_server_node`), launch files, params, Foxglove layouts; implements `ros_logger.hpp`.
+- `datasets/` — TartanGround download/convert scripts and the experiment pipeline; `experiments/` — pipeline output.
 
 ## Rolling engine architecture (`rolling_bonxai`)
 
@@ -47,10 +74,10 @@ Compiled with `-Wall -Wextra -Wpedantic`. The node needs a `sensor_msgs/PointClo
 Collaborators that must be understood together:
 - `ChunkCoordinateSystem` — center-origin grid (chunk (0,0,0) centered on world origin); world ↔ voxel ↔ chunk conversion, neighbor enumeration.
 - `TransitionManager` — 5-state hysteresis machine; transition fires only after penetrating `hysteresis_ratio × chunk_size` into the new chunk; jumps >1 chunk bypass hysteresis.
-- `ChunkLoadingPolicy` (pure virtual, in `chunk_loading_policy_interface.hpp`, impls in `chunk_loading_policies.*`) — Neighborhood / PlanarNeighborhood / Temporal; answers `shouldLoad`/`shouldEvict` and load priority from a `PolicyContext`.
+- `ChunkLoadingPolicy` (pure virtual, in `chunk_loading_policy_interface.hpp`, impls in `chunk_loading_policies.*`) — Neighborhood / PlanarNeighborhood / Temporal; answers `shouldLoad`/`shouldEvict` and load priority from a `PolicyContext`. All three use `neighborhood.radius`.
 - `ManagedChunk` (`common.*`) — owns `unique_ptr<OccupancyMap>`; `getMutableMap()` marks dirty; `transferMapOwnership()` hands the grid out for saving without a copy.
 - `ChunkStorage` (`chunk_storage.*`) — active-chunk container with Vector/HashMap/Deque implementations (compared by the benchmark).
 - `AsyncChunkManager` — owns `FileStorageBackend` plus a priority-queue load pool and FIFO save pool; loads return `std::future`, polled non-blockingly from the main thread. Duplicate loads are rejected both by the caller (`active_chunks_`/`pending_loads_`) and the manager.
 - `FileStorageBackend` — `<base_dir>/<x>_<y>_<z>/` containing a binary `.chunk` and YAML `.timestamp`; per-chunk files make concurrent access to different chunks safe.
 
-The README's mermaid data-flow diagram traces point cloud → TF/PCL → engine → disk → published topics; note some file paths in its quick-reference table are stale (e.g. `rolling_bonxai_server.cpp` is under `rolling_bonxai_ros/src/`, `OccupancyMap` lives in `bonxai_map`).
+The mermaid data-flow diagram in `ARCHITECTURE.md` traces point cloud → TF/PCL → engine → disk → published topics.
