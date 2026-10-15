@@ -12,11 +12,15 @@ Topics written:
     /tf_static                    tf2_msgs/TFMessage            base_link -> lidar, base_link -> camera_front
     /camera/image_raw/compressed  sensor_msgs/CompressedImage   PNG, lcam_front
 
-Frame notes (verified by scan-overlap registration of consecutive scans):
-  * pose_lcam_front.txt holds world poses [x y z qx qy qz qw], z-up.
-  * The raw LiDAR .ply is left-handed relative to those poses; body = (lidar_y, lidar_x, lidar_z).
-    The x/y swap is applied here so the published cloud is right-handed and
-    base_link -> lidar is identity. The LiDAR is assumed to sit at the pose origin.
+Frame notes (verified by scan-overlap registration of consecutive scans plus a gravity check):
+  * pose_lcam_front.txt holds TartanAir-convention poses [x y z qx qy qz qw]: NED world (z DOWN), and the body frame
+    is x forward, y right, z down (FRD). Going up stairs makes z more negative.
+  * The raw LiDAR .ply maps to that body frame as FRD = (lidar_y, lidar_x, -lidar_z), a proper rotation. Of all 48
+    signed axis permutations this gives the best overlap of scans 3 frames apart (0.79) and puts the floor below the
+    robot. (An earlier version read the poses as z-up and swapped lidar x/y instead: locally consistent, but the
+    whole world came out vertically mirrored, e.g. stairs going up appeared to go down.)
+  * Published in ROS conventions: map is ENU (z up) and base_link is FLU (x forward, y left, z up), so the cloud is
+    (lidar_y, -lidar_x, lidar_z) and base_link -> lidar is identity. The LiDAR is assumed to sit at the pose origin.
 """
 import argparse
 import sys
@@ -51,6 +55,41 @@ TF_STATIC_QOS = """- history: 3
     nsec: 4294967295
   avoid_ros_namespace_conventions: false
 """
+
+
+NED_TO_ENU = np.array([[0, 1, 0], [1, 0, 0], [0, 0, -1]], dtype=float)  # world: NED -> ENU
+FLU_TO_FRD = np.diag([1.0, -1.0, -1.0])                                  # body: ROS FLU -> TartanAir FRD
+
+
+def quat_to_matrix(q):
+    x, y, z, w = q / np.linalg.norm(q)
+    return np.array([
+        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+    ])
+
+
+def matrix_to_quat(m):
+    """Rotation matrix -> [x y z w] (Shepperd's method)."""
+    t = np.trace(m)
+    if t > 0:
+        s = 2 * np.sqrt(t + 1)
+        q = [(m[2, 1] - m[1, 2]) / s, (m[0, 2] - m[2, 0]) / s, (m[1, 0] - m[0, 1]) / s, s / 4]
+    else:
+        i = int(np.argmax(np.diag(m)))
+        j, k = (i + 1) % 3, (i + 2) % 3
+        s = 2 * np.sqrt(1 + m[i, i] - m[j, j] - m[k, k])
+        q = [0.0, 0.0, 0.0, (m[k, j] - m[j, k]) / s]
+        q[i] = s / 4
+        q[j] = (m[j, i] + m[i, j]) / s
+        q[k] = (m[k, i] + m[i, k]) / s
+    return np.array(q)
+
+
+def ned_pose_to_ros(p, q):
+    """TartanAir pose (NED world, FRD body) -> map (ENU) -> base_link (FLU) translation and quaternion."""
+    return NED_TO_ENU @ p, matrix_to_quat(NED_TO_ENU @ quat_to_matrix(q) @ FLU_TO_FRD)
 
 
 def read_ply_xyz(path):
@@ -137,14 +176,15 @@ def main():
 
     for i in range(n):
         t = T0_NS + i * DT_NS
-        xyz = read_ply_xyz(scans[i])[:, [1, 0, 2]]  # left-handed lidar -> body frame
+        raw = read_ply_xyz(scans[i])
+        xyz = np.column_stack((raw[:, 1], -raw[:, 0], raw[:, 2]))  # raw lidar -> base_link (FLU)
         xyz = np.ascontiguousarray(xyz, dtype="<f4")
         cloud = PointCloud2(header=header(t, "lidar"), height=1, width=len(xyz), fields=fields,
                             is_bigendian=False, point_step=12, row_step=12 * len(xyz),
                             data=xyz.tobytes(), is_dense=True)
         writer.write("/lidar", serialize_message(cloud), t)
 
-        msg = TFMessage(transforms=[make_tf(t, "map", "base_link", poses[i, :3], poses[i, 3:])])
+        msg = TFMessage(transforms=[make_tf(t, "map", "base_link", *ned_pose_to_ros(poses[i, :3], poses[i, 3:]))])
         writer.write("/tf", serialize_message(msg), t)
 
         if images:
