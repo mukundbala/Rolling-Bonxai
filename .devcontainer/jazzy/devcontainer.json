@@ -22,6 +22,12 @@
     "workspaceMount": "source=${localWorkspaceFolder},target=/ros2_ws/src/Rolling-Bonxai,type=bind,consistency=cached",
     "workspaceFolder": "/ros2_ws",
 
+    // Run as the non-root `ubuntu` user (created in the Dockerfile) so files written to the
+    // bind-mounted repo are owned by you on the host, not root. updateRemoteUserUID remaps
+    // the user to your host uid/gid if they are not 1000.
+    "remoteUser": "ubuntu",
+    "updateRemoteUserUID": true,
+
     "mounts": [
         { "source": "rolling_bonxai_build_jazzy",   "target": "/ros2_ws/build",   "type": "volume" },
         { "source": "rolling_bonxai_install_jazzy",  "target": "/ros2_ws/install", "type": "volume" },

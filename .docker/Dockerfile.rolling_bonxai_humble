@@ -51,6 +51,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-rosbag2 \
     ros-humble-rosbag2-storage-mcap \
     python3-numpy \
+    # Experiment pipeline: plots (plot_stats.py), CPU profiling (perf; run_experiments.py --perf)
+    # and a GUI to browse the profiles (hotspot; under Wayland run it with QT_QPA_PLATFORM=wayland)
+    python3-matplotlib \
+    linux-tools-common \
+    linux-tools-generic \
+    hotspot \
     # Gazebo Harmonic bridge (for /clock topic relay from SITL)
     ros-humble-ros-gz-bridge \
     # C++ dependencies
@@ -60,13 +66,40 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libboost-all-dev \
     # Debug tools
     gdb \
+    # Lets the non-root dev user install packages (rosdep install uses sudo)
+    sudo \
     && rm -rf /var/lib/apt/lists/*
+
+# Dataset downloads (datasets/scripts/download_tartanground.py): huggingface_hub only, no torch/CUDA
+RUN pip3 install --no-cache-dir "huggingface_hub==1.33.0"
+
+# Ubuntu's `perf` wrapper only runs on Ubuntu kernels (it looks for /usr/lib/linux-tools/$(uname -r));
+# point `perf` straight at the installed binary so it also works on other host kernels.
+RUN ln -sf "$(ls -d /usr/lib/linux-tools/*/perf | sort -V | tail -1)" /usr/local/bin/perf
 
 RUN rosdep init 2>/dev/null || true && rosdep update
 
 RUN echo "source /opt/ros/humble/setup.bash" >> /root/.bashrc && \
     echo "source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash" \
          >> /root/.bashrc
+
+# Non-root dev user, so files created in the bind-mounted repo belong to the host user, not root.
+# The devcontainer runs as this user (remoteUser) and remaps its uid to the host's (updateRemoteUserUID).
+# Ubuntu 24.04 images already ship `ubuntu` (uid 1000); on 22.04 it is created here.
+ARG USERNAME=ubuntu
+ARG USER_UID=1000
+ARG USER_GID=1000
+RUN if ! id -u "${USERNAME}" >/dev/null 2>&1; then \
+        groupadd --gid "${USER_GID}" "${USERNAME}" && \
+        useradd --uid "${USER_UID}" --gid "${USER_GID}" --create-home --shell /bin/bash "${USERNAME}"; \
+    fi && \
+    echo "${USERNAME} ALL=(root) NOPASSWD:ALL" > "/etc/sudoers.d/${USERNAME}" && \
+    chmod 0440 "/etc/sudoers.d/${USERNAME}" && \
+    # Owned by the user so new build/install/log volumes inherit that ownership
+    mkdir -p /ros2_ws/build /ros2_ws/install /ros2_ws/log && \
+    chown -R "${USERNAME}:${USERNAME}" /ros2_ws && \
+    echo "source /opt/ros/humble/setup.bash" >> "/home/${USERNAME}/.bashrc" && \
+    echo "source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash" >> "/home/${USERNAME}/.bashrc"
 
 # ── Stage 2: build ───────────────────────────────────────────
 FROM deps AS build

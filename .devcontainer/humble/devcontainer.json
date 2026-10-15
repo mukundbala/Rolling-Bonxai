@@ -20,6 +20,12 @@
     "workspaceMount": "source=${localWorkspaceFolder},target=/ros2_ws/src/Rolling-Bonxai,type=bind,consistency=cached",
     "workspaceFolder": "/ros2_ws",
 
+    // Run as the non-root `ubuntu` user (created in the Dockerfile) so files written to the
+    // bind-mounted repo are owned by you on the host, not root. updateRemoteUserUID remaps
+    // the user to your host uid/gid if they are not 1000.
+    "remoteUser": "ubuntu",
+    "updateRemoteUserUID": true,
+
     // Named volumes keep build/ install/ log/ off the host filesystem
     // so Linux file permissions and inotify work correctly.
     "mounts": [

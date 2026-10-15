@@ -21,6 +21,11 @@ set -u
 
 cd /ros2_ws
 
+# Volumes created by an older root-run container are root-owned; hand them to the dev user.
+if [[ "$(id -u)" -ne 0 ]]; then
+    sudo chown -R "$(id -u):$(id -g)" /ros2_ws/build /ros2_ws/install /ros2_ws/log
+fi
+
 rosdep update && \
 rosdep install \
     --from-paths src \
